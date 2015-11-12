@@ -1,4 +1,4 @@
-set_priors <- function(priorres, partable, i, varnames, ngroups, type="int", dp, j=NULL,
+set_priors <- function(priorres, partable, i, varnames, ngroups, type="int", dp, blk, j=NULL,
                        p=NULL, nov=NULL, lv.names=NULL, lv.names.x=NULL, ov.cp=NULL,
                        lv.cp=NULL, lv.x.wish=NULL, mvcovs=NULL) {
   ## Write prior distributions/constraints to TXT2
@@ -38,17 +38,16 @@ set_priors <- function(priorres, partable, i, varnames, ngroups, type="int", dp,
                                                partable$plabel[int.idx2], "")
       } else {
         if(partable$prior[int.idx2] == ""){
-          TXT2 <- paste(TXT2, t1, "nu[", i, ",", k, "] ~ ", dp[["nu"]], "\n", sep="")
-          coefvec[partable$free[int.idx2],] <- c(paste("nu[", i, ",", k, "]", sep=""),
-                                                 partable$plabel[int.idx2],
-                                                 dp[["nu"]])
+          tmppri <- dp[["nu"]]
         } else {
-          TXT2 <- paste(TXT2, t1, "nu[", i, ",", k, "] ~ ",
-                        partable$prior[int.idx2], "\n", sep="")
-          coefvec[partable$free[int.idx2],] <- c(paste("nu[", i, ",", k, "]", sep=""),
-                                                 partable$plabel[int.idx2],
-                                                 partable$prior[int.idx2])
+          tmppri <- partable$prior[int.idx2]
         }
+        if(blk){
+          TXT2 <- paste(TXT2, t1, "nu[", i, ",", k, "] ~ ", tmppri, "\n", sep="")
+        }
+        coefvec[partable$free[int.idx2],] <- c(paste("nu[", i, ",", k, "]", sep=""),
+                                               partable$plabel[int.idx2],
+                                               tmppri)
       }
     } # end k loop
   } # end int
@@ -92,23 +91,19 @@ set_priors <- function(priorres, partable, i, varnames, ngroups, type="int", dp,
          }
       } else {
         if(partable$prior[lam.idx2] == ""){
-          TXT2 <- paste(TXT2, t1, "lambda[", lam.idx, ",", k, "] ~ ", dp[["lambda"]], "\n",
-                        sep="")
-          if(length(phvar) == 0){
-            coefvec[partable$free[lam.idx2],] <- c(paste("lambda[", lam.idx, ",", k, "]",
-                                                         sep=""),
-                                                   partable$plabel[lam.idx2],
-                                                   dp[["lambda"]])
-          }
+          tmppri <- dp[["lambda"]]
         } else {
-          TXT2 <- paste(TXT2, t1, "lambda[", lam.idx, ",", k, "] ~ ",
-                        partable$prior[lam.idx2], "\n", sep="")
-          if(length(phvar) == 0){
-            coefvec[partable$free[lam.idx2],] <- c(paste("lambda[", lam.idx, ",", k, "]",
-                                                         sep=""),
-                                                   partable$plabel[lam.idx2],
-                                                   partable$prior[lam.idx2])
-          }
+          tmppri <- partable$prior[lam.idx2]
+        }
+        if(blk){
+          TXT2 <- paste(TXT2, t1, "lambda[", lam.idx, ",", k, "] ~ ", tmppri, "\n",
+                        sep="")
+        }
+        if(length(phvar) == 0){
+          coefvec[partable$free[lam.idx2],] <- c(paste("lambda[", lam.idx, ",", k, "]",
+                                                       sep=""),
+                                                 partable$plabel[lam.idx2],
+                                                 tmppri)
         }
       }
     } # end k loop
@@ -138,17 +133,16 @@ set_priors <- function(priorres, partable, i, varnames, ngroups, type="int", dp,
                                              partable$plabel[r.idx2])
       } else {
         if(partable$prior[r.idx2] == ""){
-          TXT2 <- paste(TXT2, t1, "beta[", j, ",", k, "] ~ ", dp[["b"]], "\n", sep="")
-          coefvec[partable$free[r.idx2],] <- c(paste("beta[", j, ",", k, "]", sep=""),
-                                               partable$plabel[r.idx2],
-                                               dp[["b"]])
+          tmppri <- dp[["beta"]]
         } else {
-          TXT2 <- paste(TXT2, t1, "beta[", j, ",", k, "] ~ ",
-                        partable$prior[r.idx2], "\n", sep="")
-          coefvec[partable$free[r.idx2],] <- c(paste("beta[", j, ",", k, "]", sep=""),
-                                               partable$plabel[r.idx2],
-                                               partable$prior[r.idx2])
+          tmppri <- partable$prior[r.idx2]
         }
+        if(blk){
+          TXT2 <- paste(TXT2, t1, "beta[", j, ",", k, "] ~ ", tmppri, "\n", sep="")
+        }
+        coefvec[partable$free[r.idx2],] <- c(paste("beta[", j, ",", k, "]", sep=""),
+                                             partable$plabel[r.idx2],
+                                             tmppri)
       }
     } # end k loop
   } # end regressions
@@ -178,17 +172,16 @@ set_priors <- function(priorres, partable, i, varnames, ngroups, type="int", dp,
                                                partable$plabel[int.idx2], "")
       } else {
         if(partable$prior[int.idx2] == ""){
-          TXT2 <- paste(TXT2, t1, "alpha[", j, ",", k, "] ~ ", dp[["alpha"]], "\n", sep="")
-          coefvec[partable$free[int.idx2],] <- c(paste("alpha[", j, ",", k, "]", sep=""),
-                                                 partable$plabel[int.idx2],
-                                                 dp[["alpha"]])
+          tmppri <- dp[["alpha"]]
         } else {
-          TXT2 <- paste(TXT2, t1, "alpha[", j, ",", k, "] ~ ",
-                        partable$prior[int.idx2], "\n", sep="")
-          coefvec[partable$free[int.idx2],] <- c(paste("alpha[", j, ",", k, "]", sep=""),
-                                                 partable$plabel[int.idx2],
-                                                 partable$prior[int.idx2])
+          tmppri <- partable$prior[int.idx2]
         }
+        if(blk){
+          TXT2 <- paste(TXT2, t1, "alpha[", j, ",", k, "] ~ ", tmppri, "\n", sep="")
+        }
+        coefvec[partable$free[int.idx2],] <- c(paste("alpha[", j, ",", k, "]", sep=""),
+                                               partable$plabel[int.idx2],
+                                               tmppri)
       }
     } # end k loop
   } # end lv.nox.int
@@ -221,23 +214,25 @@ set_priors <- function(priorres, partable, i, varnames, ngroups, type="int", dp,
                                                partable$plabel[r.idx2], "")
         }
       } else {
-        if(partable$prior[r.idx2] == ""){
-          if(length(phvar) == 0){
-            TXT2 <- paste(TXT2, t1, "beta[", p, ",", k, "] ~ ", dp[["b"]], "\n", sep="")
-            coefvec[partable$free[r.idx2],] <- c(paste("beta[", p, ",", k, "]", sep=""),
-                                                 partable$plabel[r.idx2],
-                                                 dp[["b"]])
-          } else {
-            ## get here if cp=="fa"
-            TXT2 <- paste(TXT2, t1, "beta[", p, ",", k, "] ~ dnorm(0, 1e-4)\n", sep="")
-          }
+        if(partable$prior[r.idx2] == "" & length(phvar) > 0){
+          ## get here if cp=="fa"
+          TXT2 <- paste(TXT2, t1, "beta[", p, ",", k, "] ~ dnorm(0, 1e-4)\n", sep="")
         } else {
-          TXT2 <- paste(TXT2, t1, "beta[", p, ",", k, "] ~ ",
-                        partable$prior[r.idx2], "\n", sep="")
+          if(partable$prior[r.idx2] == ""){
+            tmppri <- dp[["beta"]]
+            if(length(phvar) == 0 & blk){
+              TXT2 <- paste(TXT2, t1, "beta[", p, ",", k, "] ~ ", tmppri, "\n", sep="")
+            }
+          } else {
+            tmppri <- partable$prior[r.idx2]
+            if(blk){
+              TXT2 <- paste(TXT2, t1, "beta[", p, ",", k, "] ~ ", tmppri, "\n", sep="")
+            }
+          }
           if(length(phvar) == 0){
             coefvec[partable$free[r.idx2],] <- c(paste("beta[", p, ",", k, "]", sep=""),
                                                  partable$plabel[r.idx2],
-                                                 partable$prior[r.idx2])
+                                                 tmppri)
           }
         }
       }
@@ -256,19 +251,18 @@ set_priors <- function(priorres, partable, i, varnames, ngroups, type="int", dp,
         if(partable$free[mv.idx] == 0){
           TXT2 <- paste(TXT2, t1, tvname, "[", i, ",", k, "] <- ",
                         partable$ustart[mv.idx], "\n", sep="")
-        }
-        else if(any(partable$op == "==" &
-                    partable$rhs == partable$rhs[mv.idx])){
+        } else if(any(partable$op == "==" &
+                      partable$rhs == partable$plabel[mv.idx])){
           oth.eq <- which(partable$op == "==" &
-                          partable$rhs == partable$rhs[mv.idx])
+                          partable$rhs == partable$plabel[mv.idx])
           old.idx <- which(partable$plabel == partable$lhs[oth.eq])
+          row.idx <- match(partable$lhs[old.idx], varnames)
           TXT2 <- paste(TXT2, t1, tvname, "[", i, ",", k, "] <- ",
-                        tvname, "[", old.idx, ",",
+                        tvname, "[", row.idx, ",",
                         partable$group[old.idx], "]\n", sep="")
           coefvec[partable$free[mv.idx],] <- c(paste("theta[", i, ",", k, "]", sep=""),
                                                partable$plabel[mv.idx], "")
-        }
-        else{
+        } else {
           if(partable$prior[mv.idx] == "" & !grepl("\\[", dp[["itheta"]])){
             TXT2 <- paste(TXT2, t1, tvname, "[", i, ",", k, "] ~ ", dp[["itheta"]], "\n", sep="")
             coefvec[partable$free[mv.idx],] <- c(paste("theta[", i, ",", k, "]", sep=""),
@@ -544,4 +538,43 @@ set_priors <- function(priorres, partable, i, varnames, ngroups, type="int", dp,
   } # covs
   
   list(TXT2=TXT2, coefvec=coefvec)
+}
+
+block_priors <- function(priorres, partable) {
+    coefvec <- priorres$coefvec
+    TXT2 <- priorres$TXT2
+    
+    ## tabs
+    t1 <- paste(rep(" ", 2L), collapse="")
+    t2 <- paste(rep(" ", 4L), collapse="")
+    t3 <- paste(rep(" ", 6L), collapse="")
+    
+    TXT2 <- paste(TXT2, "\n\n", t1, "# Blocked mvn priors", sep="")
+
+    nblk <- max(partable$blk, na.rm=TRUE)
+
+    for(i in 1:nblk){
+        blkpars <- partable$plabel[partable$blk == i]
+
+        ## jags names/priors
+        jnames <- coefvec[coefvec[,2] %in% blkpars,1]
+        jpris <- coefvec[coefvec[,2] %in% blkpars,3]
+        jpris <- strsplit(jpris, "[, ()]+")
+        jmns <- sapply(jpris, function(x) x[2])
+        jprecs <- sapply(jpris, function(x) x[3])
+
+        npars <- length(jnames)
+
+        TXT2 <- paste(TXT2, "\n", t1, "blk", i, " ~ dmnorm(blkmu", i, ",blkprec", i, ")", sep="")
+        for(j in 1:npars){
+            TXT2 <- paste(TXT2, "\n", t1, jnames[j], " <- blk", i, "[", j, "]", sep="")
+            TXT2 <- paste(TXT2, "\n", t1, "blkmu", i, "[", j, "] <- ", jmns[j], sep="")
+            TXT2 <- paste(TXT2, "\n", t1, "blkprec", i, "[", j, ",", j, "] <- ", jprecs[j], sep="")
+        }
+        TXT2 <- paste(TXT2, "\n", t1, "for(i in 1:", npars-1, "){\n", t2,
+                      "for(j in (i+1):", npars, "){\n", t3, "blkprec", i, "[i,j] <- 0\n",
+                      t3, "blkprec", i, "[j,i] <- 0\n", t2, "}\n", t1, "}\n", sep="")
+    }
+
+    list(TXT2=TXT2, coefvec=coefvec)
 }

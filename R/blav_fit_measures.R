@@ -70,11 +70,14 @@ blav_fit_measures <- function(object, fit.measures = "all",
     # define 'sets' of fit measures:
     fit.always <- c("npar")
 
+    # logl at posterior means
+    fit.logl <- "logl"
+    
     # posterior predictive p
     fit.chisq <- "ppp" #, "chisq.pi.lower", "chisq.pi.upper")
 
     # information criteria
-    fit.ic <- c("dic", "p_dic")
+    fit.ic <- c("bic", "dic", "p_dic")
 
     # check if "loo" is loaded or not
     # pkgs <- names(sessionInfo()[["otherPkgs"]])
@@ -95,7 +98,7 @@ blav_fit_measures <- function(object, fit.measures = "all",
     if(length(fit.measures) == 1L) {
         if(fit.measures == "default" | fit.measures == "all") {
             if(estimator == "ML") {
-                fit.measures <- c(fit.always, fit.chisq, fit.ic, 
+                fit.measures <- c(fit.always, fit.logl, fit.chisq, fit.ic, 
                                   fit.rmsea, fit.mll)
             } else {
                 stop("blavaan ERROR: Invalid estimator.")
@@ -114,19 +117,24 @@ blav_fit_measures <- function(object, fit.measures = "all",
         indices["npar"] <- npar
     }
 
+    if("logl" %in% fit.measures) {
+        indices["logl"] <- object@Fit@fx
+    }
+    
     # posterior predictive p
     if("ppp" %in% fit.measures) {
         indices["ppp"] <- object@Fit@test[[2]]$stat
     }
-    if(any(c("dic", "p_dic") %in% fit.measures)) {
-        df <- 2*(object@Fit@fx - mean(as.numeric(object@runjags$samplls[,,1])))
+    if(any(c("bic", "dic", "p_dic") %in% fit.measures)) {
+        df <- 2*(object@Fit@fx - mean(as.numeric(object@external$runjags$samplls[,,1])))
+        indices["bic"] <- -2*object@Fit@fx + npar*log(N)
         indices["dic"] <- -2*object@Fit@fx + 2*df
         indices["p_dic"] <- df
     }
     if(any(c("waic", "p_waic", "looic", "p_loo") %in% fit.measures)) {
         lavopt <- object@Options
         lavopt$estimator <- "ML"
-        casells <- case_lls(object@runjags, object@Model,
+        casells <- case_lls(object@external$runjags, object@Model,
                             object@ParTable, object@SampleStats,
                             lavopt, object@Cache,
                             object@Data)
@@ -138,13 +146,7 @@ blav_fit_measures <- function(object, fit.measures = "all",
         indices["p_loo"] <- fitres$p_loo
     }
     if("margloglik" %in% fit.measures) {
-        indices["margloglik"] <- margloglik(object@ParTable,
-                                            object@Model,
-                                            object@Options,
-                                            object@SampleStats,
-                                            object@Data,
-                                            object@Cache,
-                                            object@runjags)
+        indices["margloglik"] <- object@test[[1]]$stat
     }
     
     out <- unlist(indices[fit.measures])

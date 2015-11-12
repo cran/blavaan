@@ -98,8 +98,10 @@ set_inits <- function(partable, coefvec, matdims, ov.cp, lv.cp, n.chains, inits)
       pricom[1] <- gsub("^d", "r", pricom[1])
 
       ## Generate initial values
-      ivs <- do.call(pricom[1], list(n.chains, as.numeric(pricom[2]),
-                                     as.numeric(pricom[3])))
+      ## FIXME do something smarter upon failure
+      ivs <- try(do.call(pricom[1], list(n.chains, as.numeric(pricom[2]),
+                                     as.numeric(pricom[3]))), silent = TRUE)
+      if(inherits(ivs, "try-error")) ivs <- rep(NA, n.chains)
     } else {
       ptrow <- which(partable$plabel == coefvec[i,2])[1]
       ivs <- jitter(rep(partable$start[ptrow], n.chains), amount = 1)

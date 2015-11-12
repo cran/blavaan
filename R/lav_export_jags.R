@@ -1,4 +1,4 @@
-lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.wish = FALSE, dp = dpriors(), n.chains = 1, inits = "prior", pta = NULL) {
+lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.wish = FALSE, dp = dpriors(), n.chains = 1, jagextra = "", inits = "prior", pta = NULL) {
   ## lots of code is taken from lav_export_bugs.R
 
   if(class(model)[1]=="lavaan"){
@@ -120,53 +120,81 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
   matdims <- matrix(NA, 8, 2)
   rownames(matdims) <- c("invthet", "invpsi", "rstar",
                          "nu", "alpha", "lambda", "beta", "ibpsi")
-  mvvdim <- length(which(partable$lhs == partable$rhs &
-                         partable$op == "~~" &
-                         partable$lhs %in% ov.names))/ngroups
-  matdims[1,] <- c(mvvdim, ngroups)      
-  lvvdim <- length(which(partable$lhs == partable$rhs &
-                         partable$op == "~~" &
-                         partable$lhs %in% lv.names))/ngroups
+  ## NB: don't add priors on precisions here because they mess up initial values,
+  ##     and they wouldn't be included in blocks anyway
+  mvv <- (partable$lhs == partable$rhs &
+          partable$op == "~~" &
+          partable$lhs %in% ov.names)
+  #partable$prior[mvv & partable$prior == ""] <- dp[["itheta"]]
+  mvvdim <- sum(mvv)/ngroups
+  matdims[1,] <- c(mvvdim, ngroups)
+  lvv <- (partable$lhs == partable$rhs &
+          partable$op == "~~" &
+          partable$lhs %in% lv.names)
+  #partable$prior[lvv & partable$prior == ""] <- dp[["ipsi"]]
+  lvvdim <- sum(lvv)/ngroups
   matdims[2,] <- c(lvvdim, ngroups)
   ## only find covariances under srs; fa parameterization
   ## is covered by the phantom variables and wishart is covered separately:
   if(!lv.x.wish){
-    covs <- which(partable$lhs != partable$rhs & partable$op == "~~")
+    covs <- (partable$lhs != partable$rhs & partable$op == "~~")
   } else {
-    covs <- which(partable$lhs != partable$rhs &
-                  partable$op == "~~" &
-                  !(partable$lhs %in% orig.lv.names.x) &
-                  !(partable$rhs %in% orig.lv.names.x))
+    covs <- (partable$lhs != partable$rhs &
+             partable$op == "~~" &
+             !(partable$lhs %in% orig.lv.names.x) &
+             !(partable$rhs %in% orig.lv.names.x))
   }
-  cov.eq <- which(partable$op == "==" & partable$rhs %in% partable$plabel[covs])
-  covdim <- length(covs)/ngroups #(length(covs) - length(cov.eq))/ngroups
+  ##cov.eq <- which(partable$op == "==" & partable$rhs %in% partable$plabel[covs])
+  ##partable$prior[covs & partable$prior==""] <- dp[["rho"]]
+  covdim <- sum(covs)/ngroups #(length(covs) - length(cov.eq))/ngroups
   matdims[3,] <- c(covdim, ngroups)
+
+  eqlabs <- partable$rhs[partable$op == "=="]
+    
+  ovi <- (partable$op == "~1" & partable$lhs %in% ov.names)
+  ovifree <- (ovi & (partable$label == "" | !duplicated(partable$label)) &
+              partable$free > 0 & !(partable$label %in% eqlabs))
+  partable$prior[ovifree & partable$prior==""] <- dp[["nu"]]
+  lvi <- (partable$op == "~1" & partable$lhs %in% lv.names)
+  lvifree <- (lvi & (partable$label == "" | !duplicated(partable$label)) &
+              partable$free > 0 & !(partable$label %in% eqlabs))
+  partable$prior[lvifree & partable$prior==""] <- dp[["alpha"]]
+  load <- (partable$op == "=~")
+  loadfree <- (load & (partable$label == "" | !duplicated(partable$label)) &
+               partable$free > 0 & !(partable$label %in% eqlabs))
+  partable$prior[loadfree & partable$prior==""] <- dp[["lambda"]]
+  reg <- (partable$op == "~" &
+          partable$lhs %in% c(orig.ov.names, lv.nox) &
+          (partable$rhs %in% lv.names |
+           partable$rhs %in% orig.ov.names))
+  regfree <- (reg & (partable$label == "" | !duplicated(partable$label)) &
+              partable$free > 0 & !(partable$label %in% eqlabs))
+  partable$prior[regfree & partable$prior==""] <- dp[["beta"]]
+
+  ## block mvn priors for efficiency
+  #partable <- set_blocks(partable)
+  partable$blk <- rep(NA, length(partable$lhs))
 
   ## TODO We now attach equality constraints to these tables, could
   ##      also deal with inequality constraints.
   ## Smaller partables for different parameter types +
   ## dimensions of parameter matrices (for initial values)
-  ovintercepts <- partable[which(partable$op == "~1" &
-                                 partable$lhs %in% ov.names),]
+  ovintercepts <- partable[ovi,]
   matdims[4,] <- c(nrow(ovintercepts)/ngroups, ngroups)
   ovintercepts <- rbind(ovintercepts, partable[which(partable$op == "=="),])
-  lvintercepts <- partable[which(partable$op == "~1" &
-                                 partable$lhs %in% lv.names),]
+  lvintercepts <- partable[lvi,]
   matdims[5,] <- c(nrow(lvintercepts)/ngroups, ngroups)
   lvintercepts <- rbind(lvintercepts, partable[which(partable$op == "=="),])
-  loadings <- partable[which(partable$op == "=~"),]
+  loadings <- partable[load,]
   matdims[6,] <- c(nrow(loadings)/ngroups, ngroups)
   loadings <- rbind(loadings, partable[which(partable$op == "=="),])
-  regressions <- partable[which(partable$op == "~" &
-                                partable$lhs %in% c(orig.ov.names, lv.nox) &
-                                (partable$rhs %in% lv.names |
-                                 partable$rhs %in% orig.ov.names)),]
+  regressions <- partable[reg,]
   matdims[7,] <- c(nrow(regressions)/ngroups, ngroups)
   regressions <- rbind(regressions, partable[which(partable$op == "=="),])
   if(lv.x.wish & nlvx > 1){
     matdims[8,] <- c(nlvx, ngroups)
   }
-
+  
   ## Define univariate distributions of each observed variable
   TXT <- paste(TXT, t2,
                "for(j in 1:", nmvs, ") {\n", sep="")
@@ -200,7 +228,7 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
         priorres$TXT2 <- paste(priorres$TXT2, t1, "nu[", ov.idx, ",", j, "] <- 0\n", sep="")
       }
     } else {
-      priorres <- set_priors(priorres, ovintercepts, ov.idx, ov.names, ngroups, "int", dp)
+      priorres <- set_priors(priorres, ovintercepts, ov.idx, ov.names, ngroups, "int", dp, is.na(partable$blk[int.idx]))
     }
 
     ## 2. factor loading? 
@@ -215,7 +243,7 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
                      , "]", sep="")
 
         ## Now assign priors/constraints
-        priorres <- set_priors(priorres, loadings, i, ov.names, ngroups, "loadings", dp, j=j)
+        priorres <- set_priors(priorres, loadings, i, ov.names, ngroups, "loadings", dp, is.na(loadings$blk[lam.idx[j]]), j=j)
       } # end j loop
     }
 
@@ -237,7 +265,7 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
       TXT <- paste(TXT, " + ",
                    "beta[", j, ",g[i]]*", RHS, sep="")
       ## 25Sept15 was orig.ov.names; changed to ov.names
-      priorres <- set_priors(priorres, regressions, i, ov.names, ngroups, "regressions", dp, j=j)
+      priorres <- set_priors(priorres, regressions, i, ov.names, ngroups, "regressions", dp, is.na(regressions$blk[j]), j=j)
     }
 
     ## 4. residual variance (with phantoms)
@@ -360,7 +388,7 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
         ## fixed or free?
         TXT <- paste(TXT, "alpha[", mu.ind, ",", "g[i]]", sep="")
 
-        priorres <- set_priors(priorres, lvintercepts, i, lv.names, ngroups, "lv.nox.int", dp, j=mu.ind)
+        priorres <- set_priors(priorres, lvintercepts, i, lv.names, ngroups, "lv.nox.int", dp, is.na(lvintercepts$blk[int.idx]), j=mu.ind)
       } else { # no intercept, say '0', so we always have rhs
         TXT <- paste(TXT, "0", sep="")
       }
@@ -384,7 +412,7 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
 
           ## Now assign priors/constraints
           priorres <- set_priors(priorres, regressions, i, lv.names, ngroups, "lv.nox.reg",
-                                 dp, j=lv.names[j], p=rhs.idx[p])
+                                 dp, is.na(regressions$blk[rhs.idx[p]]), j=lv.names[j], p=rhs.idx[p])
         } # end p loop
       } # end if
 
@@ -431,11 +459,15 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
 
   ## now get priors for residual variance parameters of non-exo mvs and lvs
   priorres <- set_priors(priorres, partable, 1, c(ov.names, lv.names), ngroups,
-                         type="vars", dp=dp, nov=nmvs, lv.names.x=orig.lv.names.x, ov.cp=ov.cp, lv.cp=lv.cp, lv.x.wish=lv.x.wish, mvcovs=mvcovs)
+                         type="vars", dp=dp, blk=TRUE, nov=nmvs, lv.names.x=orig.lv.names.x, ov.cp=ov.cp, lv.cp=lv.cp, lv.x.wish=lv.x.wish, mvcovs=mvcovs)
   ## and for correlation parameters
   priorres <- set_priors(priorres, partable, 1, c(ov.names, lv.names), ngroups,
-                         type="covs", dp=dp, nov=nmvs, lv.names.x=orig.lv.names.x, ov.cp=ov.cp, lv.cp=lv.cp, lv.x.wish=lv.x.wish)
-  
+                         type="covs", dp=dp, blk=TRUE, nov=nmvs, lv.names.x=orig.lv.names.x, ov.cp=ov.cp, lv.cp=lv.cp, lv.x.wish=lv.x.wish)
+
+  ## and for blocked multivariate normal parameters, now that
+  ## priorres$coefvec should have all the jags labels
+  if(any(!is.na(partable$blk))) priorres <- block_priors(priorres, partable)
+    
   ## covariances resulting from phantoms go in TXT3
   TXT3 <- paste(TXT3, "\n", sep="")
   covtable <- partable[which(partable$op == "~~" &
@@ -492,18 +524,28 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
   ## end of model
   TXT <- paste(TXT, "\n\n", t1, "# Priors/constraints", priorres$TXT2, sep="")
   TXT <- paste(TXT, TXT3, sep="")
+  ## extra stuff from the user, formatted to look nice-ish
+  if("syntax" %in% names(jagextra)){
+    jagextra <- unlist(strsplit(jagextra$syntax, "\n"))
+    jagextra <- gsub("^\\s+|\\s+$", "", jagextra)
+    jagextra <- paste(t1, jagextra, sep="", collapse="\n")
+    TXT <- paste(TXT, "\n", jagextra, "\n", sep="")
+  }
   TXT <- paste(TXT, "\n", "} # End of model\n", sep="")
 
   out <- TXT
   class(out) <- c("lavaan.character", "character")
 
-  ## Initial values
-  inits <- set_inits(partable, priorres$coefvec, matdims, ov.cp, lv.cp, n.chains, inits)
-
   priorres$coefvec <- data.frame(priorres$coefvec, stringsAsFactors = FALSE)
   names(priorres$coefvec) <- c("jlabel", "plabel", "prior")
-  out <- list(model = out, coefvec = priorres$coefvec, inits = inits)
-  
+  out <- list(model = out, coefvec = priorres$coefvec, inits = NA)
+    
+  ## Initial values
+  if(inits != "jags"){
+      inits <- set_inits(partable, priorres$coefvec, matdims, ov.cp, lv.cp, n.chains, inits)
+      out$inits <- inits
+  }
+        
   ## Now add data for jags if we have it
   if(!is.null(lavdata) | class(model)=="lavaan"){
     if(class(model) == "lavaan") lavdata <- model@Data

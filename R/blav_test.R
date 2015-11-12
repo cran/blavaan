@@ -7,6 +7,7 @@ blav_model_test <- function(lavmodel       = NULL,
                             lavcache       = NULL,
                             lavdata        = NULL,
                             lavjags        = NULL,
+                            jagextra       = NULL,
                             control        = list()) {
 
 
@@ -14,10 +15,16 @@ blav_model_test <- function(lavmodel       = NULL,
 
     ## marginal log-likelihood approximation
     ## needs original partable with rhos
-    mll <- margloglik(lavpartable, lavmodel, lavoptions, 
-                      lavsamplestats, lavdata, lavcache, lavjags)
-    ## TODO this will be TEST[[2]] once fitMeasures gives us
-    ## DIC; DIC restricted to fitMeasures?
+    if("syntax" %in% names(jagextra)){
+        warning("blavaan WARNING: Marginal log-likelihood cannot be approximated when there is additional JAGS syntax.")
+        mll <- NA
+    } else {
+        mll <- try(margloglik(lavpartable, lavmodel, lavoptions, 
+                              lavsamplestats, lavdata, lavcache,
+                              lavjags), silent=TRUE)
+        if(inherits(mll, "try-error")) mll <- NA
+    }
+
     ppp <- postpred(lavpartable, lavmodel, lavoptions,
                     lavsamplestats, lavdata, lavcache, lavjags)$ppval
 

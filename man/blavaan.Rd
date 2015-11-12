@@ -6,7 +6,8 @@ Fit a Bayesian latent variable model.}
 \usage{
 blavaan(..., ov.cp = "srs", lv.cp = "srs",
     dp = dpriors(), n.chains = 3, burnin, sample,
-    adapt, jagfile = FALSE, inits = "prior", jagcontrol = list())
+    adapt, jagfile = FALSE, jagextra = list(), inits = "prior",
+    jagcontrol = list())
 }
 \arguments{
 \item{...}{Default lavaan arguments.  See \code{\link{lavaan}}.}
@@ -28,6 +29,10 @@ blavaan(..., ov.cp = "srs", lv.cp = "srs",
 \item{jagfile}{If \code{TRUE}, the JAGS model and data will be written
   to files (in the lavExport directory). Can also supply a character
   string, which serves as the name of the directory to which files will be written.}
+\item{jagextra}{A list with potential names \code{syntax} and
+  \code{monitor}. The \code{syntax} object is a text string containing extra
+  code to insert in the JAGS model syntax, and the \code{monitor} object
+  is a character vector containing extra JAGS parameters to sample.}
 \item{inits}{If it is a character string, the options are currently
     \code{"simple"}, \code{"Mplus"}, \code{"prior"} (default), or \code{"jags"}.  In the first two
     cases, parameter values are set as though they will be estimated via
@@ -60,7 +65,7 @@ Modeling. Journal of Statistical Software, 48(2), 1-36. URL
 http://www.jstatsoft.org/v48/i02/.
 
 Edgar C. Merkle & Yves Rosseel (2015). blavaan: Bayesian Structural
-Equation Models using R and JAGS.
+Equation Models via Parameter Expansion.
 }
 \seealso{
 \code{\link{bcfa}}, \code{\link{bsem}}, \code{\link{bgrowth}}

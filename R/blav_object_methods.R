@@ -19,18 +19,18 @@ short.summary <- function(object) {
         if(object@Fit@converged) {
 	    cat(sprintf("blavaan (%s) results of %3i samples after %3i adapt+burnin iterations\n",
                     packageDescription("blavaan", fields="Version"),
-                    object@runjags$sample,
-                    object@runjags$burnin))
+                    object@external$runjags$sample,
+                    object@external$runjags$burnin))
         } else {
             cat(sprintf("** WARNING ** blavaan (%s) did NOT converge after %i adapt+burnin iterations\n", 
                 packageDescription("blavaan", fields="Version"),
-                object@runjags$burnin))
+                object@external$runjags$burnin))
             cat("** WARNING ** Proceed with caution\n")
         }
     } else {
         cat(sprintf("** WARNING ** blavaan (%s) model has NOT been fitted\n",
                     packageDescription("blavaan", fields="Version")))
-        cat("** WARNING ** Estimates below are simply the starting values\n")
+        #cat("** WARNING ** Estimates below are simply the starting values\n")
     }
     cat("\n")
 
@@ -168,6 +168,8 @@ function(object, header       = TRUE,
                  modindices   = FALSE,
                  psrf         = TRUE,
                  neff         = FALSE,
+                 postmedian   = FALSE,
+                 postmode     = FALSE,
                  priors       = TRUE,
                  nd = 3L) {
 
@@ -210,9 +212,9 @@ function(object, header       = TRUE,
         rhos <- grep("rho", object@ParTable$jlabel[object@ParTable$op != "=="])
         if(length(rhos) > 0) PE <- PE[-rhos,]
         ## move rho priors to covariance rows
-        rhos <- grep("rho", object@runjags$origpt$jlabel)
-        covrhos <- grep("@rho", object@runjags$origpt$plabel)
-        object@ParTable$prior[covrhos] <- object@runjags$origpt$prior[rhos]
+        rhos <- grep("rho", object@external$runjags$origpt$jlabel)
+        covrhos <- grep("@rho", object@external$runjags$origpt$plabel)
+        object@ParTable$prior[covrhos] <- object@external$runjags$origpt$prior[rhos]
         ## remove equality constraints from ParTable (rhos removed in blavaan())
         eqc <- which(object@ParTable$op == "==")
         if(length(eqc) > 0){
@@ -221,25 +223,45 @@ function(object, header       = TRUE,
             newpt <- object@ParTable
         }
         ## match jags names to partable, then partable to PE
-        ptentry <- match(rownames(object@runjags$HPD), newpt$jlabel) #object@ParTable$jlabel)
+        ptentry <- match(rownames(object@external$runjags$HPD), newpt$jlabel) #object@ParTable$jlabel)
         pte2 <- ptentry[!is.na(ptentry)]
         peentry <- match(with(newpt, paste(lhs[pte2], op[pte2], rhs[pte2], group[pte2], sep="")),
                          paste(PE$lhs, PE$op, PE$rhs, PE$group, sep=""))
-        PE$ci.lower[peentry] <- object@runjags$HPD[!is.na(ptentry),'Lower95']
-        PE$ci.upper[peentry] <- object@runjags$HPD[!is.na(ptentry),'Upper95']
+        PE$ci.lower[peentry] <- object@external$runjags$HPD[!is.na(ptentry),'Lower95']
+        PE$ci.upper[peentry] <- object@external$runjags$HPD[!is.na(ptentry),'Upper95']
+
+        ## NB This is done so that we can remove fixed parameter hpd intervals without
+        ##    making changes to lavaan's print.lavaan.parameterEstimates(). But maybe
+        ##    this should actually go in the lavaan function.
+        char.format <- paste("%", max(8, nd + 5), "s", sep="")
+        PE$ci.lower <- round(PE$ci.lower, nd)
+        PE$ci.lower[PE$ci.lower == PE$est] <- ""
+        PE$ci.lower <- sprintf(char.format, PE$ci.lower)
+        PE$ci.upper <- round(PE$ci.upper, nd)
+        PE$ci.upper[PE$ci.upper == PE$est] <- ""
+        PE$ci.upper <- sprintf(char.format, PE$ci.upper)
 
         if(psrf){
           PE$psrf <- rep(NA, nrow(PE))
-          PE$psrf[peentry] <- object@runjags$psrf$psrf[!is.na(ptentry),'Point est.']
+          PE$psrf[peentry] <- object@external$runjags$psrf$psrf[!is.na(ptentry),'Point est.']
         }
         if(neff){
           PE$neff <- rep(NA, nrow(PE))
-          PE$neff[peentry] <- object@runjags$summaries[!is.na(ptentry),'SSeff']
+          PE$neff[peentry] <- object@external$runjags$summaries[!is.na(ptentry),'SSeff']
         }
         if(priors){
           PE$prior <- rep(NA, nrow(PE))
           PE$prior[peentry] <- newpt$prior[pte2]
           PE$prior[is.na(PE$prior)] <- ""
+        }
+        if(postmedian){
+          PE$Post.Med <- rep(NA, nrow(PE))
+          PE$Post.Med[peentry] <- object@external$runjags$summaries[!is.na(ptentry),'Median']
+        }
+        if(postmode){
+          PE$Post.Mode <- rep(NA, nrow(PE))
+          PE$Post.Mode[peentry] <- object@external$runjags$summaries[!is.na(ptentry),'Mode']
+          if(all(is.na(PE$Post.Mode))) warning("blavaan WARNING: Posterior modes require installtion of the modeest package.")
         }
         ## alternative names because this is not ML
         penames <- names(PE)
@@ -248,6 +270,7 @@ function(object, header       = TRUE,
         names(PE)[penames == "se"] <- "Post.SD"
         names(PE)[penames == "ci.lower"] <- "HPD.025"
         names(PE)[penames == "ci.upper"] <- "HPD.975"
+        names(PE)[penames == "psrf"] <- "PSRF"
         print(PE, nd = nd)
 
     } # parameter estimates
@@ -271,7 +294,7 @@ function(object, header       = TRUE,
 #    if(object@Fit@npar > 0L && !object@Fit@converged)
 #        warning("blavaan WARNING: chains may not have converged, proceed with caution.")
 #    
-#    VarCov <- object@runjags$vcov
+#    VarCov <- object@external$runjags$vcov
 #
 #    labs <- lav_partable_labels(object@ParTable, type="free")
 #    
@@ -341,9 +364,10 @@ function(object, header       = TRUE,
 ##     else call
 ## })
 
-plot.blavaan <- function(x, pars, ...){
-    # NB: ... can contain extra arguments to coda:::plot.mcmc
-    plot(x@runjags$mcmc[,pars], ...)
+plot.blavaan <- function(x, pars, plot.type="trace", ...){
+    # NB: arguments go to plot.runjags()
+    parnames <- rownames(x@external$runjags$summaries)[pars]
+    plot(x@external$runjags, plot.type=plot.type, vars=parnames, ...)
 }
     
 #setMethod("anova", signature(object = "blavaan"),

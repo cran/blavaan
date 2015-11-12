@@ -13,6 +13,7 @@ blavaan <- function(...,  # default lavaan arguments
                     sample             ,
                     adapt              ,
                     jagfile            = FALSE,
+                    jagextra           = list(),
                     inits              = "prior",
                     jagcontrol         = list()
                    )
@@ -27,7 +28,7 @@ blavaan <- function(...,  # default lavaan arguments
     dotdotdot <- list(...); dotNames <- names(dotdotdot)
 
     # which arguments do we override?
-    lavArgsOverride <- c("do.fit", "meanstructure", "missing", "estimator")
+    lavArgsOverride <- c("meanstructure", "missing", "estimator")
     # always warn?
     warn.idx <- which(lavArgsOverride %in% dotNames)
     if(length(warn.idx) > 0L) {
@@ -35,6 +36,9 @@ blavaan <- function(...,  # default lavaan arguments
                 "                   ", 
                 paste(lavArgsOverride[warn.idx], collapse = " "))
     }
+    # if do.fit supplied, save it for jags stuff
+    jag.do.fit <- TRUE
+    if("do.fit" %in% dotNames) jag.do.fit <- dotdotdot$do.fit
     dotdotdot$do.fit <- FALSE        # implies se="none" and test="none"
     dotdotdot$meanstructure <- TRUE
     dotdotdot$missing <- "direct"   # direct/ml creates error? (bug in lavaan?)
@@ -170,6 +174,10 @@ blavaan <- function(...,  # default lavaan arguments
             cat("blavaan NOTE: Posterior predictives with missing data are currently very slow.\nConsider setting test=\"none\".\n\n")
         }
     }
+    if(!jag.do.fit){
+      lavoptions$test <- "none"
+      lavoptions$se <- "none"
+    }
     lavoptions$missing   <- "ml"
     lavoptions$ov.cp     <- ov.cp
     lavoptions$lv.cp     <- lv.cp
@@ -185,7 +193,7 @@ blavaan <- function(...,  # default lavaan arguments
         jagtrans <- try(lav2jags(model = lavpartable, lavdata = lavdata, 
                                  ov.cp = ov.cp, lv.cp = lv.cp,
                                  lv.x.wish = lavoptions$auto.cov.lv.x,
-                                 dp = dp, n.chains = n.chains, inits = inits),
+                                 dp = dp, n.chains = n.chains, jagextra = jagextra, inits = inits),
                         silent = TRUE)
 
         if(!inherits(jagtrans, "try-error")){
@@ -199,16 +207,29 @@ blavaan <- function(...,  # default lavaan arguments
 
             ## merge coefvec with lavpartable
             lavpartable <- mergejag(lavpartable, jagtrans$coefvec)
+
+            ## add extras to monitor, if specified
+            sampparms <- jagtrans$coefvec[,1]
+            if("monitor" %in% names(jagextra)){
+                sampparms <- c(sampparms, jagextra$monitor)
+            }
+            
             ## let jags set inits; helpful for debugging
             if(inits == "jags") jagtrans$inits <- NA
             rjarg <- with(jagtrans, list(model = paste(model),
-                          monitor = coefvec[,1], # "dic", "deviance"),
+                          monitor = sampparms, # "dic", "deviance"),
                           data = data, inits = inits))
 
             ## user-supplied jags params
             rjarg <- c(rjarg, mfj, jagcontrol)
+            ## obtain posterior modes
+            if(suppressMessages(requireNamespace("modeest"))) runjags.options(mode.continuous=TRUE)
 
-            res <- try(do.call("run.jags", rjarg))
+            if(jag.do.fit){
+              res <- try(do.call("run.jags", rjarg))
+            } else {
+              res <- NULL
+            }
 
             if(inherits(res, "try-error")) {
                 dir.create(path=jagdir, showWarnings=FALSE)
@@ -226,16 +247,51 @@ blavaan <- function(...,  # default lavaan arguments
         x <- parests$x
 
         lavpartable <- parests$lavpartable
-        lavmodel <- lav_model_set_parameters(lavmodel, x = x)
-    }
-    attr(x, "iterations") <- res$sample
-    attr(x, "converged") <- TRUE
-    attr(x, "control") <- jagcontrol
+        if(jag.do.fit){
+          lavmodel <- lav_model_set_parameters(lavmodel, x = x)
 
-    ## parameter convergence (ignore deviance, dic, along with rho parameters):
+          # overwrite lavpartable$est to include def/con values
+          lavpartable$est <- lav_model_get_parameters(lavmodel = lavmodel,
+                                                      type = "user", extra = TRUE)
+
+          attr(x, "iterations") <- res$sample
+          attr(x, "converged") <- TRUE
+
+          attr(x, "control") <- jagcontrol
+
+          attr(x, "fx") <- get_ll(lavmodel = lavmodel, lavpartable = lavpartable,
+                                  lavsamplestats = lavsamplestats, lavoptions = lavoptions,
+                                  lavcache = lavcache, lavdata = lavdata)[1]
+
+        } else {
+          x <- numeric(0L)
+          attr(x, "iterations") <- 0L; attr(x, "converged") <- FALSE
+          attr(x, "control") <- jagcontrol
+          attr(x, "fx") <- get_ll(lavmodel = lavmodel, 
+                                  lavpartable = lavpartable,
+                                  lavsamplestats = lavsamplestats,
+                                  lavoptions = lavoptions,
+                                  lavcache = lavcache,
+                                  lavdata = lavdata)[1]
+          
+          lavpartable$est <- lavpartable$start
+        }
+    }
+
+    ## parameter convergence + implied moments:
     rhorows <- grepl("rho", jagtrans$coefvec[,1])
     parrows <- 1:nrow(jagtrans$coefvec)
-    if(any(res$psrf$psrf[parrows[!rhorows],1] > 1.2)) attr(x, "converged") <- FALSE
+    lavimplied <- NULL
+    ## compute/store some model-implied statistics
+    lavimplied <- lav_model_implied(lavmodel)
+    if(jag.do.fit){
+      if(any(res$psrf$psrf[parrows[!rhorows],1] > 1.2)) attr(x, "converged") <- FALSE
+
+      ## warn if psrf is large
+      if(!attr(x, "converged") && lavoptions$warn) {
+        warning("blavaan WARNING: at least one parameter has a psrf > 1.2.")
+      }
+    }
 
     ## fx is mean ll, where ll is marginal log-likelihood (integrate out lvs)
     if(lavoptions$test != "none") {
@@ -245,18 +301,6 @@ blavaan <- function(...,  # default lavaan arguments
     } else {
       res$samplls <- NULL
     }
-    attr(x, "fx") <- get_ll(lavmodel = lavmodel, lavpartable = lavpartable,
-                            lavsamplestats = lavsamplestats, lavoptions = lavoptions,
-                            lavcache = lavcache, lavdata = lavdata)[1]
-
-        # <- lavaan:::lav_model_objective(lavmodel, 
-        #                                 lavsamplestats = lavsamplestats,
-        #                                 estimator = "ML")
-
-    ## check if model has converged or not
-    if(!attr(x, "converged") && lavoptions$warn) {
-        warning("blavaan WARNING: at least one parameter has a psrf > 1.2.")
-    }
     
     ## put runjags output in new blavaan slot
     lavjags <- res
@@ -264,22 +308,25 @@ blavaan <- function(...,  # default lavaan arguments
     start.time <- proc.time()[3]
 
     ## 7. VCOV is now simple
-    VCOV <- diag(parests$sd) %*% parests$vcorr %*% diag(parests$sd)
-    lavjags <- c(lavjags, list(vcov = VCOV))
+    lavvcov <- list()
+    VCOV <- NULL
+    if(jag.do.fit){
+      VCOV <- diag(parests$sd) %*% parests$vcorr %*% diag(parests$sd)
+      lavjags <- c(lavjags, list(vcov = VCOV))
 
-    # store vcov in new @vcov slot
-    # strip all attributes but 'dim'
-    tmp.attr <- attributes(VCOV)
-    VCOV1 <- VCOV
-    attributes(VCOV1) <- tmp.attr["dim"]
-    lavvcov <- list(vcov = VCOV1)
-
+      # store vcov in new @vcov slot
+      # strip all attributes but 'dim'
+      tmp.attr <- attributes(VCOV)
+      VCOV1 <- VCOV
+      attributes(VCOV1) <- tmp.attr["dim"]
+      lavvcov <- list(vcov = VCOV1)
+    }
 
     timing$VCOV <- (proc.time()[3] - start.time)
     start.time <- proc.time()[3]
 
     ## 8. "test statistics": marginal log-likelihood, dic
-    TEST <- NULL
+    TEST <- list()
     if(lavoptions$test != "none") { # && attr(x, "converged")) {
         TEST <- blav_model_test(lavmodel            = lavmodel,
                                 lavpartable         = lavpartable,
@@ -289,7 +336,8 @@ blavaan <- function(...,  # default lavaan arguments
                                 VCOV                = VCOV,
                                 lavdata             = lavdata,
                                 lavcache            = lavcache,
-                                lavjags             = lavjags)
+                                lavjags             = lavjags,
+                                jagextra            = jagextra)
         if(verbose) cat(" done.\n")
     }
     timing$TEST <- (proc.time()[3] - start.time)
@@ -298,10 +346,10 @@ blavaan <- function(...,  # default lavaan arguments
     # 9. collect information about model fit (S4)
     lavfit <- blav_model_fit(lavpartable = lavpartable,
                              lavmodel    = lavmodel,
+                             lavjags     = lavjags,
                              x           = x,
                              VCOV        = VCOV,
                              TEST        = TEST)
-
     lavpartable$se <- lavfit@se[lavpartable$id]
     timing$total <- (proc.time()[3] - start.time0)
 
@@ -328,10 +376,10 @@ blavaan <- function(...,  # default lavaan arguments
                    Fit          = lavfit,              # S4 class
                    boot         = list(),
                    optim        = list(),
-                   implied      = list(),
+                   implied      = lavimplied,          # list
                    vcov         = lavvcov,
-                   runjags      = lavjags,             # runjags
-                   test         = lavfit@test          # copied for now
+                   external     = list(runjags = lavjags), # runjags
+                   test         = TEST                 # copied for now
                   )
 
     # post-fitting check
@@ -345,11 +393,12 @@ blavaan <- function(...,  # default lavaan arguments
 ## cfa + sem
 bcfa <- bsem <- function(..., ov.cp = "srs", lv.cp = "srs", dp = dpriors(),
     n.chains = 3, burnin, sample, adapt,
-    jagfile = FALSE, inits = "prior", jagcontrol = list()) {
+    jagfile = FALSE, jagextra = list(), inits = "prior", jagcontrol = list()) {
 
-    mc <- match.call()
-    std.lv <- ifelse(any(names(mc) == "std.lv"), mc$std.lv, FALSE)
+    dotdotdot <- list(...)
+    std.lv <- ifelse(any(names(dotdotdot) == "std.lv"), dotdotdot$std.lv, FALSE)
 
+    mc <- match.call()  
     mc$model.type      = as.character( mc[[1L]] )
     if(length(mc$model.type) == 3L) mc$model.type <- mc$model.type[3L]
     mc$int.ov.free     = TRUE
@@ -369,11 +418,12 @@ bcfa <- bsem <- function(..., ov.cp = "srs", lv.cp = "srs", dp = dpriors(),
 # simple growth models
 bgrowth <- function(..., ov.cp = "srs", lv.cp = "srs", dp = dpriors(),
     n.chains = 3, burnin, sample, adapt,
-    jagfile = FALSE, inits = "prior", jagcontrol = list()) {
+    jagfile = FALSE, jagextra = list(), inits = "prior", jagcontrol = list()) {
+
+    dotdotdot <- list(...)
+    std.lv <- ifelse(any(names(dotdotdot) == "std.lv"), dotdotdot$std.lv, FALSE)
 
     mc <- match.call()
-    std.lv <- ifelse(any(names(mc) == "std.lv"), mc$std.lv, FALSE)
-    
     mc$model.type      = "growth"
     mc$int.ov.free     = FALSE
     mc$int.lv.free     = TRUE

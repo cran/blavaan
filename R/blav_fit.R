@@ -1,5 +1,6 @@
 blav_model_fit <- function(lavpartable = NULL,
-                           lavmodel    = NULL, 
+                           lavmodel    = NULL,
+                           lavjags     = NULL,
                            x           = NULL, 
                            VCOV        = NULL, 
                            TEST        = NULL) {
@@ -23,8 +24,9 @@ blav_model_fit <- function(lavpartable = NULL,
     est <- lav_model_get_parameters(lavmodel = lavmodel, type = "user")
 
     # did we compute standard errors?
+    blaboot <- rearr_params(lavjags$mcmc, lavpartable)
     se <- lav_model_vcov_se(lavmodel = lavmodel, lavpartable = lavpartable,
-                            VCOV = VCOV, BOOT = NULL)
+                            VCOV = VCOV, BOOT = blaboot)
 
     # did we compute test statistics
     if(is.null(TEST)) {

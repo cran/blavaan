@@ -32,7 +32,7 @@ importFrom("lavaan",
            "modificationIndices", "parTable", "parameterEstimates")
 
 importFrom("runjags",
-           "run.jags")
+           "run.jags", "runjags.options")
 
 importFrom("MCMCpack",
            "dwish")
@@ -48,3 +48,5 @@ importFrom("loo",
            "waic")
 
 export("blavaan", "bcfa", "bsem", "bgrowth", "dpriors", "BF")
+
+S3method(plot, blavaan)

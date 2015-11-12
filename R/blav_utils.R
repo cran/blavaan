@@ -219,6 +219,25 @@ fill_params <- function(postsamp      = NULL,
     lav_model_set_parameters(lavmodel, x = postsamp[cmatch])
 }
 
+## re-arrange columns of parameter samples to match that of blavaan object
+rearr_params <- function(mcmc         = NULL,
+                         lavpartable  = NULL){
+    fullmat <- mcmc[[1]]
+    for(i in 2:length(mcmc)){
+        fullmat <- rbind(fullmat, mcmc[[i]])
+    }
+    
+    cnames <- lavpartable$jlabel
+    rhos <- grep("rho", cnames)
+    nn <- c(rhos, which(cnames == ""))
+    if(length(nn) > 0) {
+        cnames <- cnames[-nn]
+    }
+    cmatch <- match(cnames, colnames(fullmat), nomatch=0)
+
+    fullmat[,cmatch]
+}   
+
 ## iteration numbers for samp_lls and postpred
 sampnums <- function(lavjags, thin){
     niter <- nrow(lavjags$mcmc[[1]])
@@ -226,4 +245,28 @@ sampnums <- function(lavjags, thin){
     psamp <- seq(1, niter, length.out=nsamps)
 
     psamp
+}
+
+## define blocks for multivariate normal priors
+set_blocks <- function(partable){
+    loadblks <- unique(partable$lhs[partable$op == "=~"])
+    regintblks <- unique(partable$lhs[partable$op %in% c("~", "~1")])
+    blks <- c(loadblks, regintblks)
+    blks <- blks[!duplicated(blks)]
+
+    blknum <- 0
+    partable$blk <- rep(NA, length(partable$lhs))
+    for(i in 1:length(blks)){
+        parrows <- which(partable$lhs == blks[i] &
+                         grepl("dnorm", partable$prior) &
+                         !grepl("T\\(", partable$prior) &
+                         !grepl("I\\(", partable$prior))
+
+        if(length(parrows) < 2) next
+
+        blknum <- blknum + 1
+
+        partable$blk[parrows] <- blknum
+    }
+    partable
 }
