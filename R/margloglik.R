@@ -33,10 +33,11 @@ margloglik <- function(lavpartable, lavmodel, lavoptions,
   ## this is potentially under srs parameterization,
   ## need to change below to use lavaan's log-likelihood
   thetstar <- bayesout$summary$statistics[cmatch,"Mean"]
+  names(thetstar) <- NULL
 
   ## convert prior strings to commands + parameters
   pri <- lavpartable$prior[urows]
-  pricom <- strsplit(pri, "[, ()]+")
+  pricom <- jagsdist2r(pri)
 
   ## warn about fa priors
   if(any((sapply(pricom, length) == 0) & grepl("cov", lavpartable$jlabel[urows]))) warning("blavaan WARNING: marginal log-likelihoods under ov.cp=fa or lv.cp=fa may be unstable.")
@@ -112,41 +113,12 @@ margloglik <- function(lavpartable, lavmodel, lavoptions,
       tmpdens <- log(approx(tmpkd$x, tmpkd$y, thetstar[i])$y)
     } else {
       ## we have an explicit prior;
-      ## convert to R parameterization of distributions
-      par1 <- as.numeric(pricom[[i]][2])
-      par2 <- as.numeric(pricom[[i]][3])
-      ## sd parameterization of dnorm
-      if(pricom[[i]][1] == "dnorm") par2 <- sqrt(1/par2)
-      ## convert beta with (-1,1) support to beta with (0,1)
-      if(grepl("rho", lavpartable$jlabel[urows][i])) thetstar[i] <- (thetstar[i]+1)/2
-      ## convert to precision, vs variance (priors are on precisions)
-      if(grepl("theta", lavpartable$jlabel[urows][i]) | grepl("psi", lavpartable$jlabel[urows][i])) thetstar[i] <- 1/thetstar[i]
-      ## for truncated/censored distributions:
-      support.prob <- 1
-      ## is prior on sd or variance, is it truncated
-      if(length(pricom[[i]]) > 3){
-        prisd <- grepl("sd", pricom[[i]][4])
-        privar <- grepl("var", pricom[[i]][4])
-        if(prisd | privar){
-          thetstar[i] <- 1/thetstar[i]
-          if(prisd) thetstar[i] <- sqrt(thetstar[i])
-        } else if(pricom[[i]][4] != "T"){
-          warning("blavaan WARNING: Cannot yet handle censored priors in marginal log-likelihood computation.\nMarginal log-likelihood and Bayes factor approximations may be poor.\n")
-        } else {
-          cdf.fun <- gsub("^d", "p", pricom[[i]][1])
-          if(length(pricom[[i]]) == 5){
-            support.prob <- 1 - do.call(cdf.fun, list(as.numeric(pricom[[i]][5]), par1, par2))
-          } else {
-            support.prob <- do.call(cdf.fun, list(as.numeric(pricom[[i]][6]), par1, par2)) - do.call(cdf.fun, list(as.numeric(pricom[[i]][5]), par1, par2))
-          }
-        }
-      }
-      
-      tmpdens <- do.call(pricom[[i]][1], list(thetstar[i], par1, par2, log=TRUE)) - log(support.prob)
+      ## convert to R parameterization of distributions & evaluate
+      tmpdens <- eval_prior(pricom[[i]], thetstar[i], lavpartable$jlabel[urows][i])
     }
     priloglik <- priloglik + tmpdens
   }
-  
+
   ## have lavaan calculate the log-likelihood
   ## switch off se, force test = "standard"
   lavoptions$se <- "none"
@@ -167,6 +139,7 @@ margloglik <- function(lavpartable, lavmodel, lavoptions,
                         slotSampleStats = lavsamplestats,
                         slotData = lavdata,
                         slotCache = lavcache), silent=TRUE)
+
   if(!inherits(fit.new, "try-error")){
     loglik <- fitMeasures(fit.new, "logl")
   } else {

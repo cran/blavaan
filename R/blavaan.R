@@ -118,11 +118,12 @@ blavaan <- function(...,  # default lavaan arguments
     ov.noy <- LAV@pta$vnames$ov.nox[[1]]
     ov.noy <- ov.noy[!(ov.noy %in% LAV@pta$vnames$ov.y)]
     prispec <- "prior" %in% names(LAV@ParTable)
+    ndpriors <- rep(FALSE, length(LAV@ParTable$lhs))
+    if(prispec) ndpriors <- LAV@ParTable$prior != ""
     con.cov <- any(LAV@ParTable$lhs %in% c(lv.x, ov.noy) &
                    LAV@ParTable$op == "~~" &
                    (LAV@ParTable$free == 0 |
-                    ifelse(prispec, LAV@ParTable$prior != "",
-                           rep(FALSE, length(LAV@ParTable$lhs)))))
+                    ndpriors))
     if(con.cov) LAV@Options$auto.cov.lv.x <- FALSE
 
     # if std.lv, truncate the prior of each lv's first loading
@@ -350,7 +351,15 @@ blavaan <- function(...,  # default lavaan arguments
                              x           = x,
                              VCOV        = VCOV,
                              TEST        = TEST)
+    ## add SE and SD-Bayes factor to lavpartable
+    ## (code around line 270 of blav_object_methods
+    ##  can be removed with this addition near line 923
+    ##  of lav_object_methods:
+    ## if(object@Options$estimator == "Bayes") {
+    ##    LIST$logBF <- PARTABLE$logBF
+    ## }
     lavpartable$se <- lavfit@se[lavpartable$id]
+    lavpartable$logBF <- SDBF(lavpartable)
     timing$total <- (proc.time()[3] - start.time0)
 
     ## remove rhos from partable + ses, so lavaan built-ins work

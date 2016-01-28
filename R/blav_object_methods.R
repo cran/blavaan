@@ -171,6 +171,7 @@ function(object, header       = TRUE,
                  postmedian   = FALSE,
                  postmode     = FALSE,
                  priors       = TRUE,
+                 bf           = FALSE,
                  nd = 3L) {
 
     if(std.nox) standardized <- TRUE
@@ -222,6 +223,7 @@ function(object, header       = TRUE,
         } else {
             newpt <- object@ParTable
         }
+
         ## match jags names to partable, then partable to PE
         ptentry <- match(rownames(object@external$runjags$HPD), newpt$jlabel) #object@ParTable$jlabel)
         pte2 <- ptentry[!is.na(ptentry)]
@@ -262,6 +264,18 @@ function(object, header       = TRUE,
           PE$Post.Mode <- rep(NA, nrow(PE))
           PE$Post.Mode[peentry] <- object@external$runjags$summaries[!is.na(ptentry),'Mode']
           if(all(is.na(PE$Post.Mode))) warning("blavaan WARNING: Posterior modes require installtion of the modeest package.")
+        }
+        if(bf){
+          ## we don't know whether priors=TRUE:
+          PE2 <- PE
+          if(!("prior" %in% names(PE))){
+            tmppri <- rep("", nrow(PE))
+            tmppri[peentry] <- newpt$prior[pte2]
+            PE2$prior <- tmppri
+          }
+          PE$logBF <- round(SDBF(PE2), nd)
+          PE$logBF[is.na(PE$logBF)] <- ""
+          PE$logBF <- sprintf(char.format, PE$logBF)
         }
         ## alternative names because this is not ML
         penames <- names(PE)
@@ -422,4 +436,24 @@ BF <- function(object1, object2, ...) {
     names(res) <- c("bf", "mll1", "mll2")
 
     invisible(res)
+}
+
+
+SDBF <- function(PE) {
+  tmprow <- which(PE$op %in% c("~", "=~"))
+
+  postdens <- dnorm(0, mean=PE$est[tmprow], sd=PE$se[tmprow], log=TRUE)
+
+  pricom <- jagsdist2r(PE$prior[tmprow])
+  pridens <- rep(NA, length(tmprow))
+  for(i in 1:length(tmprow)){
+      tmpdens <- try(eval_prior(pricom[[i]], 0, ""), silent=TRUE)
+      
+      if(!inherits(tmpdens, "try-error")) pridens[i] <- tmpdens
+  }
+
+  bf <- rep(NA, length(PE$op))
+  bf[tmprow] <- pridens - postdens
+  
+  bf
 }
