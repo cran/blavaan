@@ -18,6 +18,9 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
   nparam <- sum(partable$free > 0)
   orig.ov.names <- old.vnames$ov[[1]]; nov <- length(orig.ov.names)
   orig.lv.names <- old.vnames$lv[[1]]; orig.lv.names.x <- old.vnames$lv.x[[1]]
+  ## so ordering stays consistent:
+  orig.lv.names <- c(orig.lv.names[orig.lv.names %in% orig.lv.names.x],
+                     orig.lv.names[!(orig.lv.names %in% orig.lv.names.x)])
   orig.ov.names.x <- old.vnames$ov.x[[1]]
   nlvx <- length(orig.lv.names.x)
   
@@ -61,14 +64,18 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
 
   ## check that variables are the same in all groups:
   for(g in 1:ngroups){
-    if(!all.equal(orig.ov.names, old.vnames$ov[[g]])){
-      stop("ERROR: observed variables are not the same in each group.")
+    if(!identical(orig.ov.names, old.vnames$ov[[g]])){
+      stop("blavaan ERROR: observed variables are not the same in each group.")
     }
-    if(!all.equal(lv.names, vnames$lv[[g]])){
-      stop("ERROR: latent variables are not the same in each group.")
+    if(!identical(lv.names, vnames$lv[[g]])){
+      if(all(lv.names %in% vnames$lv[[g]]) & length(lv.names) == length(vnames$lv[[g]])){
+        next
+      } else {
+        stop("blavaan ERROR: latent variables are not the same in each group.")
+      }
     }
   }
-  
+
   ## add phantom lvs if not already there
   phnames <- unique(partable$lhs[grep(".phant", partable$lhs)])
   lv.names <- c(lv.names, phnames[!(phnames %in% lv.names)])
@@ -385,10 +392,22 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
           lv.ind <- rbind(lv.ind, c(j, lv.ind[nrow(lv.ind),2] + 1))
           mu.ind <- lv.ind[nrow(lv.ind),2]
           ## TODO see whether we need invpsistar?
-          TXT <- paste(TXT, "\n", t2,
-                       ## TODO check for alternative distribution?
-                       "eta[i,", j, "] ~ dnorm(mu.eta[i,", 
-                       mu.ind, "], invpsistar[", mu.ind, ",g[i]])", sep="")
+          
+          lv.var <- which(partable$lhs == lv.names[mu.ind] &
+                          partable$rhs == lv.names[mu.ind] &
+                          partable$op == "~~")
+          ## if lv variance is 0, don't assign a distribution!
+          if(partable$free[lv.var] == 0 & partable$ustart[lv.var] == 0){
+            TXT <- paste(TXT, "\n", t2,
+                         "eta[i,", j, "] <- mu.eta[i,", mu.ind, "]", sep="")
+            ## now change ustart to 1000 so no divide by 0 in jags
+            partable$ustart[lv.var] <- 1000
+          } else {
+            TXT <- paste(TXT, "\n", t2,
+                         ## TODO check for alternative distribution?
+                         "eta[i,", j, "] ~ dnorm(mu.eta[i,", 
+                         mu.ind, "], invpsistar[", mu.ind, ",g[i]])", sep="")
+          }
         } else {
           ## latent interaction:
           eta.eq[j] <- tmp.eq
@@ -435,30 +454,52 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
         TXT <- paste(TXT, "0", sep="")
       }
 
+      ## FIXME!! Possibility of loadings here
       if(lv.names[j] %in% lv.nox){
-        ## 2. regressions?
+        ## 2. loadings?
+        lam.idx <- which(loadings$op == "=~" &
+                         loadings$rhs == lv.names[j] &
+                         loadings$group == 1)
+        if(length(lam.idx) > 0){
+          for(k in 1:length(lam.idx)){
+            TXT <- paste(TXT, " + lambda[", lam.idx[k],
+                         ",g[i]]*eta[i,",
+                         match(loadings$lhs[lam.idx[k]], lv.names),
+                         "]", sep="")
+
+            ## priors/constraints
+            priorres <- set_priors(priorres, loadings, j, lv.names,
+                                   ngroups, "loadings", dp,
+                                   is.na(loadings$blk[lam.idx[k]]),
+                                   j=k)
+          } # end k loop
+        }                         
+        
+        ## 3. regressions?
         rhs.idx <- which(regressions$lhs == lv.names[j] &
                          regressions$group == 1)
         np <- length(rhs.idx)
-        for(p in 1:np) {
-          TXT <- paste(TXT, " + ",
-                       "beta[", rhs.idx[p], ",g[i]]", sep="")
+        if(np > 0){ # there could be none if we have higher-order factors
+          for(p in 1:np){
+            TXT <- paste(TXT, " + ",
+                         "beta[", rhs.idx[p], ",g[i]]", sep="")
 
-          ## Is the rhs an lv or ov?
-          lvmatch <- match(regressions$rhs[rhs.idx[p]], lv.names)
-          if(is.na(lvmatch)){
-            TXT <- paste(TXT, "*y[i,", match(regressions$rhs[rhs.idx[p]], orig.ov.names), "]", sep="")
-          } else {
-            TXT <- paste(TXT, "*eta[i,", lvmatch, "]", sep="")
-          }
+            ## Is the rhs an lv or ov?
+            lvmatch <- match(regressions$rhs[rhs.idx[p]], lv.names)
+            if(is.na(lvmatch)){
+              TXT <- paste(TXT, "*y[i,", match(regressions$rhs[rhs.idx[p]], orig.ov.names), "]", sep="")
+            } else {
+              TXT <- paste(TXT, "*eta[i,", lvmatch, "]", sep="")
+            }
 
-          ## Now assign priors/constraints
-          priorres <- set_priors(priorres, regressions, i, lv.names, ngroups, "lv.nox.reg",
-                                 dp, is.na(regressions$blk[rhs.idx[p]]), j=lv.names[j], p=rhs.idx[p])
-        } # end p loop
+            ## Now assign priors/constraints
+            priorres <- set_priors(priorres, regressions, i, lv.names, ngroups, "lv.nox.reg",
+                                   dp, is.na(regressions$blk[rhs.idx[p]]), j=lv.names[j], p=rhs.idx[p])
+          } # end p loop
+        } # end if np
       } # end if
 
-      ## 3. lv variances (with phantoms)
+      ## 4. lv variances (with phantoms)
       p.idx <- which(regressions$lhs == lv.names[j] &
                      regressions$op == "~" &
                      grepl(".phant", regressions$rhs) &

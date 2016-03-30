@@ -23,7 +23,6 @@ blavaan <- function(...,  # default lavaan arguments
 
     # store original call
     mc  <- match.call()
-
     # catch dot dot dot
     dotdotdot <- list(...); dotNames <- names(dotdotdot)
 
@@ -52,7 +51,7 @@ blavaan <- function(...,  # default lavaan arguments
             mc$sample <- 1000
         }
     }
-    jarg <- c("n.chains", "burnin", "sample", "adapt")
+    jarg <- c("burnin", "sample", "adapt")
     mcj <- match(jarg, names(mc), 0L)
     if(any(mcj > 0)){
         mfj <- as.list(mc[mcj])
@@ -62,6 +61,7 @@ blavaan <- function(...,  # default lavaan arguments
     } else {
         mfj <- list()
     }
+    mfj <- c(mfj, list(n.chains = n.chains))
 
     # which argument do we remove/ignore?
     lavArgsRemove <- c("likelihood", "information", "se", "bootstrap",
@@ -90,10 +90,14 @@ blavaan <- function(...,  # default lavaan arguments
     ineq <- which(LAV@ParTable$op %in% c("<",">"))
     if(length(ineq) > 0) {
         LAV@ParTable <- lapply(LAV@ParTable, function(x) x[-ineq])
-        if(jagfile==FALSE) jagfile <- TRUE
-        warning("blavaan WARNING: blavaan does not handle inequality constraints.\ntry modifying the exported JAGS code.")
+        if(class(jagfile) == "logical") jagfile <- TRUE
+        warning("blavaan WARNING: blavaan does not currently handle inequality constraints.\ntry modifying the exported JAGS code.")
+    }  
+    defp <- which(LAV@ParTable$op == ":=")
+    if(length(defp) > 0) {
+        if(class(jagfile) == "logical") jagfile <- TRUE
+        warning("blavaan WARNING: blavaan does not currently handle defined parameters.\ntry modifying the exported JAGS code.")
     }
-
     eqs <- (LAV@Model@ceq.JAC == -1 | LAV@Model@ceq.JAC == 1)
     if(length(dim(eqs)) > 0) {
         compeq <- which(LAV@Model@ceq.rhs != 0 |
@@ -146,10 +150,24 @@ blavaan <- function(...,  # default lavaan arguments
         }
     }
 
-    # if jagfile is a directory, vs logical
+    # if jagfile is a directory, vs list, vs logical
+    trans.exists <- FALSE
     if(class(jagfile)=="character"){
         jagdir <- jagfile
         jagfile <- TRUE
+    } else if(class(jagfile)=="list"){
+        trans.exists <- TRUE
+        ## read syntax file
+        jagsyn <- readLines(jagfile$syntax)
+        ## load jagtrans object
+        load(jagfile$jagtrans)
+        ## add new syntax
+        jagtrans$model <- paste(jagsyn, collapse="\n")
+        ## make sure we don't rewrite the file:
+        jagfile <- FALSE
+        ## we have no idea what they did, so wipe out the priors
+        jagtrans$coefvec$prior <- ""
+        jagdir <- "lavExport"
     }  else {
         jagdir <- "lavExport"
     }
@@ -190,12 +208,14 @@ blavaan <- function(...,  # default lavaan arguments
     start.time <- proc.time()[3]
     x <- NULL
     if(lavmodel@nx.free > 0L) {
-        ## convert partable to jags, then run
-        jagtrans <- try(lav2jags(model = lavpartable, lavdata = lavdata, 
-                                 ov.cp = ov.cp, lv.cp = lv.cp,
-                                 lv.x.wish = lavoptions$auto.cov.lv.x,
-                                 dp = dp, n.chains = n.chains, jagextra = jagextra, inits = inits),
-                        silent = TRUE)
+        if(!trans.exists){
+            ## convert partable to jags, then run
+            jagtrans <- try(lav2jags(model = lavpartable, lavdata = lavdata, 
+                                     ov.cp = ov.cp, lv.cp = lv.cp,
+                                     lv.x.wish = lavoptions$auto.cov.lv.x,
+                                     dp = dp, n.chains = n.chains, jagextra = jagextra, inits = inits),
+                            silent = TRUE)
+        }
 
         if(!inherits(jagtrans, "try-error")){
             if(jagfile){
@@ -233,15 +253,17 @@ blavaan <- function(...,  # default lavaan arguments
             }
 
             if(inherits(res, "try-error")) {
-                dir.create(path=jagdir, showWarnings=FALSE)
-                cat(jagtrans$model, file = paste(jagdir, "/sem.jag",
-                                                 sep=""))
-                save(jagtrans, file = paste(jagdir, "/semjags.rda",
-                                            sep=""))
+                if(!trans.exists){
+                    dir.create(path=jagdir, showWarnings=FALSE)
+                    cat(jagtrans$model, file = paste(jagdir, "/sem.jag",
+                                                     sep=""))
+                    save(jagtrans, file = paste(jagdir, "/semjags.rda",
+                                                sep=""))
+                }
                 stop("blavaan ERROR: problem with jags estimation.  The jags model and data have been exported.")
             }
         } else {
-            print(jagtrans)
+            #print(jagtrans)
             stop("blavaan ERROR: problem with translation from lavaan to jags.")
         }
         parests <- coeffun(lavpartable, res)
@@ -286,6 +308,7 @@ blavaan <- function(...,  # default lavaan arguments
     ## compute/store some model-implied statistics
     lavimplied <- lav_model_implied(lavmodel)
     if(jag.do.fit){
+      ## this also checks convergence of monitors from jagextra, which may not be optimal
       if(any(res$psrf$psrf[parrows[!rhorows],1] > 1.2)) attr(x, "converged") <- FALSE
 
       ## warn if psrf is large
@@ -362,6 +385,7 @@ blavaan <- function(...,  # default lavaan arguments
     lavpartable$logBF <- SDBF(lavpartable)
     timing$total <- (proc.time()[3] - start.time0)
 
+    ## 9b. misc blavaan changes to partable
     ## remove rhos from partable + ses, so lavaan built-ins work
     rhos <- grep("rho", lavpartable$jlabel)
     lavjags <- c(lavjags, list(origpt=lavpartable))
@@ -371,7 +395,12 @@ blavaan <- function(...,  # default lavaan arguments
         lavfit@se <- lavfit@se[-rhos]
     }
 
-    # 10. construct lavaan object
+    ## add monitors in jagextra as defined variables
+    if(length(jagextra$monitor) > 0){
+      lavpartable <- add_monitors(lavpartable, lavjags, jagextra)
+    }
+
+    # 10. construct blavaan object
     blavaan <- new("blavaan",
                    call         = mc,                  # match.call
                    timing       = timing,              # list
@@ -410,6 +439,7 @@ bcfa <- bsem <- function(..., ov.cp = "srs", lv.cp = "srs", dp = dpriors(),
     mc <- match.call()  
     mc$model.type      = as.character( mc[[1L]] )
     if(length(mc$model.type) == 3L) mc$model.type <- mc$model.type[3L]
+    mc$n.chains        = n.chains
     mc$int.ov.free     = TRUE
     mc$int.lv.free     = FALSE
     mc$auto.fix.first  = !std.lv
