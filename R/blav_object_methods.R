@@ -245,7 +245,7 @@ function(object, header       = TRUE,
 
         ## FIXME defined parameters never get psrf + others;
         ## see line 200 of lav_print.R
-        if(psrf){
+        if(psrf & class(object@external$runjags$psrf) != "character"){
           PE$psrf <- rep(NA, nrow(PE))
           PE$psrf[peentry] <- object@external$runjags$psrf$psrf[!is.na(ptentry),'Point est.']
         }
@@ -265,7 +265,7 @@ function(object, header       = TRUE,
         if(postmode){
           PE$Post.Mode <- rep(NA, nrow(PE))
           PE$Post.Mode[peentry] <- object@external$runjags$summaries[!is.na(ptentry),'Mode']
-          if(all(is.na(PE$Post.Mode))) warning("blavaan WARNING: Posterior modes require installtion of the modeest package.")
+          if(all(is.na(PE$Post.Mode))) warning("blavaan WARNING: Posterior modes require installation of the modeest package.")
         }
         if(bf){
           ## we don't know whether priors=TRUE:

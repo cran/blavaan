@@ -15,6 +15,7 @@ blavaan <- function(...,  # default lavaan arguments
                     jagfile            = FALSE,
                     jagextra           = list(),
                     inits              = "prior",
+                    convergence        = "manual",
                     jagcontrol         = list()
                    )
 {
@@ -55,6 +56,10 @@ blavaan <- function(...,  # default lavaan arguments
     mcj <- match(jarg, names(mc), 0L)
     if(any(mcj > 0)){
         mfj <- as.list(mc[mcj])
+        if(convergence == "auto"){
+            jarg <- c("startburnin", "startsample", "adapt")
+            names(mfj) <- jarg[mcj > 0]
+        }
         if("sample" %in% names(mc)){
             if(mc$sample*n.chains/5 < 1000) warning("blavaan WARNING: small sample drawn, proceed with caution.\n")
         }
@@ -62,7 +67,18 @@ blavaan <- function(...,  # default lavaan arguments
         mfj <- list()
     }
     mfj <- c(mfj, list(n.chains = n.chains))
-
+    if(convergence == "auto"){
+        if(!("startsample" %in% names(mfj))){
+            ## bump down default
+            mfj$startsample <- 4000
+        } else {
+            if(mfj$startsample < 4000){
+                cat("blavaan NOTE: starting sample was increased to 4000 for auto-convergence\n")
+                mfj$startsample <- 4000 # needed for runjags
+            }
+        }
+    }
+                                             
     # which argument do we remove/ignore?
     lavArgsRemove <- c("likelihood", "information", "se", "bootstrap",
                        "wls.v", "nacov", "zero.add", "zero.keep.margins",
@@ -72,7 +88,7 @@ blavaan <- function(...,  # default lavaan arguments
     if(length(warn.idx) > 0L) {
         warning("blavaan WARNING: the following arguments are ignored:\n",
                 "                   ",
-                paste(lavArgsRemove[warn.idx], collapse = " "))
+                paste(lavArgsRemove[warn.idx], collapse = " "), "\n")
     }
 
     # call lavaan
@@ -92,11 +108,6 @@ blavaan <- function(...,  # default lavaan arguments
         LAV@ParTable <- lapply(LAV@ParTable, function(x) x[-ineq])
         if(class(jagfile) == "logical") jagfile <- TRUE
         warning("blavaan WARNING: blavaan does not currently handle inequality constraints.\ntry modifying the exported JAGS code.")
-    }  
-    defp <- which(LAV@ParTable$op == ":=")
-    if(length(defp) > 0) {
-        if(class(jagfile) == "logical") jagfile <- TRUE
-        warning("blavaan WARNING: blavaan does not currently handle defined parameters.\ntry modifying the exported JAGS code.")
     }
     eqs <- (LAV@Model@ceq.JAC == -1 | LAV@Model@ceq.JAC == 1)
     if(length(dim(eqs)) > 0) {
@@ -106,7 +117,7 @@ blavaan <- function(...,  # default lavaan arguments
         if(length(compeq) > 0) {
             eqpars <- which(LAV@ParTable$op == "==")
             LAV@ParTable <- lapply(LAV@ParTable, function(x) x[-eqpars[compeq]])
-            warning("blavaan WARNING: blavaan does not currently handle complex equality constraints.\ntry modifying the exported JAGS code.")
+            warning("blavaan WARNING: blavaan does not currently handle complex equality constraints.\n  try modifying the exported JAGS code.")
         }
     }
     
@@ -124,10 +135,11 @@ blavaan <- function(...,  # default lavaan arguments
     prispec <- "prior" %in% names(LAV@ParTable)
     ndpriors <- rep(FALSE, length(LAV@ParTable$lhs))
     if(prispec) ndpriors <- LAV@ParTable$prior != ""
-    con.cov <- any(LAV@ParTable$lhs %in% c(lv.x, ov.noy) &
-                   LAV@ParTable$op == "~~" &
-                   (LAV@ParTable$free == 0 |
-                    ndpriors))
+    cov.pars <- (LAV@ParTable$lhs %in% c(lv.x, ov.noy)) & LAV@ParTable$op == "~~"
+    con.cov <- any((cov.pars & (LAV@ParTable$free == 0 | ndpriors)) |
+                   ((LAV@ParTable$lhs %in% LAV@ParTable$plabel[cov.pars] |
+                     LAV@ParTable$rhs %in% LAV@ParTable$plabel[cov.pars]) &
+                     LAV@ParTable$op == "=="))
     if(con.cov) LAV@Options$auto.cov.lv.x <- FALSE
 
     # if std.lv, truncate the prior of each lv's first loading
@@ -244,10 +256,27 @@ blavaan <- function(...,  # default lavaan arguments
             ## user-supplied jags params
             rjarg <- c(rjarg, mfj, jagcontrol)
             ## obtain posterior modes
-            if(suppressMessages(requireNamespace("modeest"))) runjags.options(mode.continuous=TRUE)
+            if(suppressMessages(requireNamespace("modeest", quietly = TRUE))) runjags.options(mode.continuous = TRUE)
 
             if(jag.do.fit){
-              res <- try(do.call("run.jags", rjarg))
+              runjags.options(force.summary = TRUE)
+              rjcall <- "run.jags"
+              if(convergence == "auto"){
+                  rjcall <- "autorun.jags"
+                  if("raftery.options" %in% names(rjarg)){
+                      ## autorun defaults
+                      if(!("r" %in% names(rjarg$raftery.options))){
+                          rjarg$raftery.options$r <- .01
+                      }
+                      if(!("converge.eps" %in% names(rjarg$raftery.options))){
+                          rjarg$raftery.options$converge.eps <- .01
+                      }
+                  } else {
+                      rjarg$raftery.options <- list(r=.01, converge.eps=.01)
+                  }
+                  if(!("max.time" %in% names(rjarg))) rjarg$max.time <- "5m"
+              }
+              res <- try(do.call(rjcall, rjarg))
             } else {
               res <- NULL
             }
@@ -307,7 +336,7 @@ blavaan <- function(...,  # default lavaan arguments
     lavimplied <- NULL
     ## compute/store some model-implied statistics
     lavimplied <- lav_model_implied(lavmodel)
-    if(jag.do.fit){
+    if(jag.do.fit & n.chains > 1){
       ## this also checks convergence of monitors from jagextra, which may not be optimal
       if(any(res$psrf$psrf[parrows[!rhorows],1] > 1.2)) attr(x, "converged") <- FALSE
 
@@ -431,7 +460,8 @@ blavaan <- function(...,  # default lavaan arguments
 ## cfa + sem
 bcfa <- bsem <- function(..., ov.cp = "srs", lv.cp = "srs", dp = dpriors(),
     n.chains = 3, burnin, sample, adapt,
-    jagfile = FALSE, jagextra = list(), inits = "prior", jagcontrol = list()) {
+    jagfile = FALSE, jagextra = list(), inits = "prior", convergence = "manual",
+    jagcontrol = list()) {
 
     dotdotdot <- list(...)
     std.lv <- ifelse(any(names(dotdotdot) == "std.lv"), dotdotdot$std.lv, FALSE)
@@ -457,7 +487,8 @@ bcfa <- bsem <- function(..., ov.cp = "srs", lv.cp = "srs", dp = dpriors(),
 # simple growth models
 bgrowth <- function(..., ov.cp = "srs", lv.cp = "srs", dp = dpriors(),
     n.chains = 3, burnin, sample, adapt,
-    jagfile = FALSE, jagextra = list(), inits = "prior", jagcontrol = list()) {
+    jagfile = FALSE, jagextra = list(), inits = "prior", convergence = "manual",
+    jagcontrol = list()) {
 
     dotdotdot <- list(...)
     std.lv <- ifelse(any(names(dotdotdot) == "std.lv"), dotdotdot$std.lv, FALSE)

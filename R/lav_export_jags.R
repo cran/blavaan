@@ -40,6 +40,8 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
                           partable$rhs %in% orig.ov.names)))
   tvname <- ifelse(mvcovs > 0, "invthetstar", "invtheta")
 
+  ## set up mvs with fixed 0 variances (single indicators of lvs)
+  partable <- set_mv0(partable, orig.ov.names, ngroups)
   ## add necessary phantom lvs/mvs to model:
   partable <- set_phantoms(partable, orig.ov.names, orig.lv.names, orig.ov.names.x, orig.lv.names.x, ov.cp, lv.cp, lv.x.wish, ngroups)
   ## ensure group parameters are in order, for parameter indexing:
@@ -210,7 +212,7 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
   if(lv.x.wish & nlvx > 1){
     matdims[8,] <- c(nlvx, ngroups)
   }
-  
+
   ## Define univariate distributions of each observed variable
   ## Loop if everything is continuous
   if(length(ov.ord) == 0){
@@ -242,7 +244,7 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
                      "] <- 1 - sum(probs[i,", ord.num, ",1:", ncats[ord.num]-1, "])\n",
                      sep="")
       } else {
-        TXT <- paste(TXT, t2, "y[i,j] ~ dnorm(mu[i,j],", tvname, "[j,g[i]])\n", sep="")
+        TXT <- paste(TXT, t2, "y[i,", j, "] ~ dnorm(mu[i,", j, "],", tvname, "[", j, ",g[i]])\n", sep="")
       }
     }
   }
@@ -396,8 +398,7 @@ lav2jags <- function(model, lavdata = NULL, ov.cp = "srs", lv.cp = "srs", lv.x.w
           lv.var <- which(partable$lhs == lv.names[mu.ind] &
                           partable$rhs == lv.names[mu.ind] &
                           partable$op == "~~")
-          ## if lv variance is 0, don't assign a distribution!
-          if(partable$free[lv.var] == 0 & partable$ustart[lv.var] == 0){
+          if(any(partable$free[lv.var] == 0 & partable$ustart[lv.var] == 0)){
             TXT <- paste(TXT, "\n", t2,
                          "eta[i,", j, "] <- mu.eta[i,", mu.ind, "]", sep="")
             ## now change ustart to 1000 so no divide by 0 in jags
