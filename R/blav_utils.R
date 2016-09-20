@@ -1,54 +1,4 @@
 ## utility functions for blavaan
-mergejag <- function(lavpartable, coefvec){
-    ## add results of jags translation to the partable
-    ## TODO plus starting values
-    plmatch <- sapply(coefvec$plabel, function(x) strsplit(x, "@")[[1]][1])
-    pldups <- duplicated(plmatch)
-
-    ## distinguish rhos from others
-    rhos <- grepl("rho", coefvec$jlabel)
-
-    ## match existing parameters with partable
-    parlocs <- match(plmatch[!rhos & !pldups], lavpartable$plabel)
-    lavpartable$plabel[parlocs] <- coefvec$plabel[!rhos & !pldups]
-
-    ## add priors to partable
-    nrlpt <- length(lavpartable$plabel)
-    if(!("prior" %in% names(lavpartable))) lavpartable$prior <- rep("", nrlpt)
-    lavpartable$prior[parlocs] <- coefvec$prior[!rhos & !pldups]
-
-    ## add jags labels (jlabel)
-    lavpartable$jlabel <- rep("", nrlpt)
-    lavpartable$jlabel[parlocs] <- coefvec$jlabel[!rhos & !pldups]
-
-    ## create new rho rows (that's a pun!) if needed and add info
-    nrhos <- sum(rhos)
-    if(nrhos > 0){
-        lavpartable <- lapply(lavpartable, function(x) c(x, rep(NA, nrhos)))
-        rhof <- nrlpt + 1
-        rhol <- nrlpt + nrhos
-
-        ## fill in most stuff the same as covariances
-        covpars <- which(grepl("cov", lavpartable$jlabel) & !(grepl("dwish", lavpartable$prior)) & grepl("@", lavpartable$plabel))
-
-        samevals <- c("id", "lhs", "op", "rhs", "user", "group", "ustart",
-                      "exo", "label", "prior")
-
-        for(i in 1:length(samevals)){
-            nameloc <- which(names(lavpartable) == samevals[i])
-            lavpartable[[nameloc]][rhof:rhol] <- lavpartable[[nameloc]][covpars]
-        }
-
-        ## remove priors from covariance parameters, because they technically have none?
-        lavpartable$prior[covpars] <- ""
-        lavpartable$free[rhof:rhol] <- 0L # so that parameterEstimates() works
-
-        lavpartable$plabel[rhof:rhol] <- coefvec$plabel[rhos]
-        lavpartable$jlabel[rhof:rhol] <- coefvec$jlabel[rhos]
-    }
-    
-    lavpartable
-}
 
 ## calculate model log-likelihood given some sampled parameter
 ## values (with lvs integrated out)
@@ -79,12 +29,13 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
             ## logl + baseline logl
             ll.samp <- c(0,0)
         }
-        
+
         for(g in 1:length(implied$cov)){
             mnvec <- as.numeric(implied$mean[[g]])
             ## ensure symmetric:
             cmat <- (implied$cov[[g]] + t(implied$cov[[g]]))/2
-            tmpll <- dmnorm(lavdata@X[[g]], mnvec, cmat, log=TRUE)
+            tmpll <- try(dmnorm(lavdata@X[[g]], mnvec, cmat, log=TRUE))
+            if(inherits(tmpll, "try-error")) tmpll <- NA
 
             sampmn <- apply(lavdata@X[[g]], 2, mean, na.rm=TRUE)
             sampcov <- ((lavdata@nobs[[g]]-1)/(lavdata@nobs[[g]]))*cov(lavdata@X[[g]])
@@ -128,14 +79,19 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
                                slotSampleStats = lavsamplestats,
                                slotData = lavdata,
                                slotCache = lavcache), silent=TRUE)
+        if(!inherits(fit.samp, "try-error")){
+            fit.samp@Options$se <- "standard" # for nonnest2
 
-        if(casewise){
-            ll.samp <- llcont(fit.samp)
-        } else if(measure == "logl"){
-            ll.samp <- c(fitMeasures(fit.samp, "logl"),
-                         fitMeasures(fit.samp, "unrestricted.logl"))
+            if(casewise){
+                ll.samp <- llcont(fit.samp)
+            } else if(measure == "logl"){
+                ll.samp <- c(fitMeasures(fit.samp, "logl"),
+                             fitMeasures(fit.samp, "unrestricted.logl"))
+            } else {
+                ll.samp <- fitMeasures(fit.samp, measure)
+            }
         } else {
-            ll.samp <- fitMeasures(fit.samp, measure)
+            ll.samp <- NA
         }
     }
 
@@ -207,16 +163,8 @@ case_lls <- function(lavjags        = NULL,
 fill_params <- function(postsamp      = NULL,
                         lavmodel      = NULL,
                         lavpartable   = NULL){
-    ## this code related to coeffun():
-    cnames <- lavpartable$jlabel
-    rhos <- grep("rho", cnames)
-    nn <- c(rhos, which(cnames == ""))
-    if(length(nn) > 0) {
-        cnames <- cnames[-nn]
-    }
-    cmatch <- match(cnames, names(postsamp), nomatch=0)
-
-    lav_model_set_parameters(lavmodel, x = postsamp[cmatch])
+  lav_model_set_parameters(lavmodel,
+                           x = postsamp[lavpartable$jagpnum[!is.na(lavpartable$jagpnum)]])
 }
 
 ## re-arrange columns of parameter samples to match that of blavaan object
@@ -229,15 +177,7 @@ rearr_params <- function(mcmc         = NULL,
         }
     }
     
-    cnames <- lavpartable$jlabel
-    rhos <- grep("rho", cnames)
-    nn <- c(rhos, which(cnames == ""))
-    if(length(nn) > 0) {
-        cnames <- cnames[-nn]
-    }
-    cmatch <- match(cnames, colnames(fullmat), nomatch=0)
-
-    fullmat[,cmatch]
+    fullmat[,lavpartable$jagpnum[lavpartable$free > 0]]
 }   
 
 ## iteration numbers for samp_lls and postpred
@@ -274,7 +214,7 @@ set_blocks <- function(partable){
 }
 
 ## evaluate prior density using result of jagsdist2r
-eval_prior <- function(pricom, thetstar, jlabel){
+eval_prior <- function(pricom, thetstar, pxname){
     ## check for truncation and [sd]/[var] modifiers
     trun <- which(pricom == "T")
     sdvar <- which(pricom %in% c("[sd]","[var]"))
@@ -293,11 +233,10 @@ eval_prior <- function(pricom, thetstar, jlabel){
     }
 
     ## thetstar modifications:
-    ## convert beta with (-1,1) support to beta with (0,1)
-    if(grepl("rho", jlabel)) thetstar <- (thetstar+1)/2
     ## convert to precision or sd, vs variance (depending on prior)
-    if(jlabel %in% c("theta", "psi")){
-        if(length(sdvar) == 0) thetstar <- 1/thetstar
+    if(grepl("theta", pxname) | grepl("psi", pxname)){
+        ## FIXME assumes correlation prior under srs is dbeta
+        if(length(sdvar) == 0 & pricom[1] != "dbeta") thetstar <- 1/thetstar
         if(any(grepl("\\[sd", pricom))) thetstar <- sqrt(thetstar)
     }
     ## dt() in R assumes mean=0, precision=1
@@ -334,10 +273,13 @@ add_monitors <- function(lavpartable, lavjags, jagextra){
     monres <- vector("list", length(jagextra$monitor))
     for(i in 1:length(jagextra$monitor)){
         tmploc <- grep(paste("^", jagextra$monitor[i], sep=""), rownames(lavjags$summaries))
-        monres[[i]] <- list(xlocs = tmploc, xnms = rownames(lavjags$summaries)[tmploc],
+        tmploc2 <- grep(paste("^", jagextra$monitor[i], sep=""), rownames(lavjags$psrf$psrf))
+        monres[[i]] <- list(xlocs = tmploc, psrfloc = tmploc2,
+                            xnms = rownames(lavjags$summaries)[tmploc],
                             nvars = length(tmploc))
     }
     xlocs <- sapply(monres, function(x) x$xlocs)
+    psrflocs <- sapply(monres, function(x) x$psrfloc)
     xnms <- sapply(monres, function(x) x$xnms)
     nvars <- sapply(monres, function(x) x$nvars)
         
@@ -357,8 +299,25 @@ add_monitors <- function(lavpartable, lavjags, jagextra){
     lavpartable$est <- c(lavpartable$est, lavjags$summaries[xlocs,'Mean'])
     lavpartable$se <- c(lavpartable$se, lavjags$summaries[xlocs,'SD'])
     lavpartable$prior <- c(lavpartable$prior, rep("", sum(nvars)))
-    lavpartable$jlabel <- c(lavpartable$jlabel, xnms)
+    lavpartable$psrf <- c(lavpartable$psrf, lavjags$psrf$psrf[psrflocs,1])
+    lavpartable$pxnames <- c(lavpartable$pxnames, xnms)
+    lavpartable$jagpnum <- c(lavpartable$jagpnum, xlocs)
     lavpartable$logBF <- c(lavpartable$logBF, rep(NA, sum(nvars)))
 
     lavpartable
+}
+
+## forbidden variable names (don't confuse with parameter names)
+namecheck <- function(ov.names){
+    forbidden <- c("mu", "invthetstar", "invtheta", "nu", "lambda", "eta",
+                   "mu.eta", "invpsistar", "invpsi", "alpha", "beta",
+                   "rho", "theta", "psi", "rstar", "cov", "ibpsi", "bpsi", "iden", "yvec",
+                   paste(".phant", 1:100, sep=""))
+
+    forbid.idx <- which(ov.names %in% forbidden)
+    
+    if(length(forbid.idx) > 0L){
+        stop("blavaan ERROR: the following variable names must be changed:\n",
+             "                   ", paste(forbidden[forbid.idx], collapse = " "))
+    }
 }

@@ -4,18 +4,15 @@
 \description{
 Fit a Growth Curve model.}
 \usage{
-bgrowth(..., ov.cp = "srs", lv.cp = "srs", dp = dpriors(), n.chains = 3,
+bgrowth(..., cp = "srs", dp = dpriors(), n.chains = 3,
 burnin, sample, adapt, jagfile = FALSE, jagextra = list(), 
-inits = "prior", convergence = "manual", jagcontrol = list())
+inits = "simple", convergence = "manual", jagcontrol = list())
 }
 \arguments{
 \item{...}{Default lavaan arguments.  See \code{\link{lavaan}}.}
-\item{ov.cp}{Handling of prior distributions on covariance parameters
-    associated with observed variables: possible values are \code{"srs"} or
+\item{cp}{Handling of prior distributions on covariance parameters: possible values are \code{"srs"} or
     \code{"fa"}.  Option \code{"srs"} is more flexible and better from a
     theoretical standpoint, but it is also slower.}
-\item{lv.cp}{Handling of prior distributions on covariance parameters
-    associated with latent variables; see the \code{ov.cp} argument.}
 \item{dp}{Default prior distributions on different types of
     parameters, typically the result of a call to \code{dpriors()}.
     See the \code{dpriors()} help file for more information.}
@@ -33,7 +30,7 @@ inits = "prior", convergence = "manual", jagcontrol = list())
   code to insert in the JAGS model syntax, and the \code{monitor} object
   is a character vector containing extra JAGS parameters to sample.}
 \item{inits}{If it is a character string, the options are currently
-    \code{"simple"}, \code{"Mplus"}, \code{"prior"} (default), and
+    \code{"simple"} (default), \code{"Mplus"}, \code{"prior"}, and
     \code{"jags"}.  In the first two 
     cases, parameter values are set as though they will be estimated via
     ML (see \code{\link{lavaan}}).  The starting parameter value for

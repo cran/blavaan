@@ -1,5 +1,5 @@
 importFrom("methods", 
-           "is", "new")
+           "is", "new", "slot")
 
 importFrom("utils", 
            # "sessionInfo",
@@ -23,7 +23,7 @@ importFrom("lavaan",
            "lavaan", "logLik",
            "fitMeasures", "fitmeasures",
            "inspect", "lavInspect", "lavTech", "lavNames", 
-           "lavParseModelString", 
+           "lavParseModelString", "lavMatrixRepresentation",
            "lav_func_jacobian_complex", "lav_func_jacobian_simple", 
            "lav_partable_labels", "lavaanify", 
            "lav_model_get_parameters", "lav_model_implied", 
@@ -36,6 +36,11 @@ importFrom("runjags",
 
 importFrom("MCMCpack",
            "dwish")
+
+importFrom("coda",
+           "mcmc.list",
+           "mcmc",
+           "HPDinterval")
 
 importFrom("mnormt",
            "dmnorm")
