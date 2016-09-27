@@ -1,10 +1,10 @@
-7153a1d9df7b7ce88e412d811ffd7d4a *DESCRIPTION
-ac250dac20b3b310a1f747e71f6e92c0 *NAMESPACE
+d39d72027dd93bf6a0c12a4f3d8f11d2 *DESCRIPTION
+d1e8783c7ad5ed1e969e1e8fcadb4e4c *NAMESPACE
 81383663d5d5eb03a49838c04cb687e0 *NEWS
 be8bb39b5618c2843ad576dd22765133 *R/00class.R
 617fe666a4fef38b109e1f5d4a458330 *R/blav_fit.R
 e3dafa4dffdf2b13f6c8b12d3c560973 *R/blav_fit_measures.R
-39a4d1f861f4ba5b2f1631ce291dbe62 *R/blav_object_inspect.R
+4718aa91c2f34ee4ecd1c309c92e401c *R/blav_object_inspect.R
 3a255ce14aab087a682a23b8ee4ea6a0 *R/blav_object_methods.R
 2a75e183762a72bdae46f04ace1b6df3 *R/blav_test.R
 45453bb7fd344fc1065e7670b73ee9af *R/blav_utils.R
@@ -13,7 +13,7 @@ e3dafa4dffdf2b13f6c8b12d3c560973 *R/blav_fit_measures.R
 cfd89b2dcbe1cfb05c97fc18281cf08c *R/jags2r.R
 dcbdc1d438e18b9724d60fbe6e0cf31d *R/lav_export_jags.R
 d7e280f00cd92b5d60e688d885d49a3a *R/margloglik.R
-ce10d6846481213b7c27cd0f3c21b2e0 *R/postpred.R
+598506449549dbf0896a2965c40e36e0 *R/postpred.R
 e616613f7b1d079d71b3df4ff95be06d *R/set_inits.R
 d99f910bc6a9d41c784dccb09c5c4171 *R/set_partable.R
 50a7a20ee6e854ef367b8d21f339f916 *R/set_priors.R
@@ -22,6 +22,7 @@ ff6d505d1b13ce7fd4bd92949882f7ad *R/zzz.R
 da57c30fa52ef9a3b8563116a55b98dc *man/BF.Rd
 b504db7713efbe19cdbe15adad29d187 *man/bcfa.Rd
 9bb0e03fe7257d8056914df0f3eda1ba *man/bgrowth.Rd
+548c3dbb0a8c2435433a468a30dcea32 *man/blavInspect.Rd
 ca196de7665b078604b09bac468f523a *man/blav_internal.Rd
 9634ebeb7252c0b82c2257c0ee67d728 *man/blavaan.Rd
 ac2aa5c341b95d6cd89dec943dd4abe2 *man/bsem.Rd
