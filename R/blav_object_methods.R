@@ -5,8 +5,8 @@ short.summary <- function(object) {
 
     # catch FAKE run
     FAKE <- FALSE
-    if(!is.null(object@Model@control$optim.method)) {
-        if(tolower(object@Model@control$optim.method) == "none") {
+    if(!is.null(object@Options$optim.method)) {
+        if(tolower(object@Options$optim.method) == "none") {
             FAKE <- TRUE
         }
     }
@@ -192,7 +192,8 @@ function(object, header       = TRUE,
 
 
     if(estimates) {
-        PE <- parameterEstimates(object, zstat = FALSE, ci = TRUE,
+        PE <- parameterEstimates(object, se = TRUE, zstat = FALSE,
+                                 ci = TRUE,
                                  standardized = standardized,
                                  rsquare = rsquare,
                                  remove.eq = FALSE, remove.system.eq = TRUE,
@@ -211,6 +212,8 @@ function(object, header       = TRUE,
         ## TODO put parameter priors in partable
 
         newpt <- object@ParTable
+        newpt$group[newpt$group == 0] <- 1 # for defined parameters
+        PE$group[PE$group == 0] <- 1
 
         ## match jags names to partable, then partable to PE
         pte2 <- which(!is.na(newpt$jagpnum))
@@ -403,22 +406,6 @@ plot.blavaan <- function(x, pars, plot.type="trace", ...){
 #
 #    ans
 #})
-
-
-BF <- function(object1, object2, ...) {
-
-    # NB Assumes test slot instead of Fit@test slot
-    # Bayes factor approximation based on marginal log-likelihoods
-    bf <- object1@test[[1]]$stat - object2@test[[1]]$stat
-
-    cat("Laplace approximation to the log-Bayes factor (experimental):\n",
-        sprintf("%8.3f", bf), "\n\n")
-
-    res <- c(bf, object1@test[[1]]$stat, object2@test[[1]]$stat)
-    names(res) <- c("bf", "mll1", "mll2")
-
-    invisible(res)
-}
 
 
 SDBF <- function(PE) {

@@ -3,6 +3,14 @@ set_phantoms <- function(partable, ov.names, lv.names, ov.names.x, lv.names.x, o
 
   ## first: parameter matrices + indexing
   partable <- lavMatrixRepresentation(partable, add.attributes = TRUE)
+  ## for defined parameters
+  defpar <- which(partable$op == ":=")
+  if(length(defpar) > 0){
+    partable$mat[defpar] <- "def"
+    partable$row[defpar] <- 1:length(defpar)
+    partable$col[defpar] <- 1
+    partable$group[defpar] <- 1
+  }
 
   ## add prior column if it doesn't exist
   if(is.na(match("prior", names(partable)))) partable$prior <- rep("", length(partable$id))
@@ -120,7 +128,8 @@ nlvcovs)
         phname <- paste(".phant", i, sep="")
         partable <- rbind(partable, blkrow, blkrow, blkrow)
 
-        partable$group[tmprows] <- k
+        ## TODO? should 'block' ever differ from 'group'?
+        partable$group[tmprows] <- partable$block[tmprows] <- k
 
         partable$rhs[tmprows[1]] <- partable$lhs[covpars[i]]
         partable$rhs[tmprows[2]] <- partable$rhs[covpars[i]]
@@ -301,7 +310,7 @@ nlvcovs)
 
   ## Add parameter numbers now that we have phantoms
   parnums <- rep(NA, nrow(partable))
-  parrows <- which(partable$op != "==")
+  parrows <- which(!(partable$op == "=="))
   parnums[parrows] <- 1:length(parrows)
   partable$parnums <- parnums    
     

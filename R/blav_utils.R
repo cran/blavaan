@@ -1,7 +1,7 @@
 ## utility functions for blavaan
 
 ## calculate model log-likelihood given some sampled parameter
-## values (with lvs integrated out)
+## values (with lvs integrated out by default)
 get_ll <- function(postsamp       = NULL, # one posterior sample
                    lavmodel       = NULL, 
                    lavpartable    = NULL, 
@@ -10,13 +10,40 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
                    lavcache       = NULL,
                    lavdata        = NULL,
                    measure        = "logl",
-                   casewise       = FALSE){
+                   casewise       = FALSE,
+                   conditional    = FALSE){
 
     if(length(postsamp) > 0){
         lavmodel <- fill_params(postsamp, lavmodel, lavpartable)
     }
 
-    implied <- lav_model_implied(lavmodel)
+    if(conditional){
+      stop("blavaan ERROR: conditional likelihoods not yet available.")
+      ## FIXME: deal with phantom lvs?
+      nlv <- length(lav_partable_attributes(lavpartable)$vnames$lv[[1]])
+      ## arrange eta in a matrix:
+      etapars <- grepl("^eta", names(postsamp))
+      etamat <- matrix(postsamp[etapars], lavsamplestats@ntotal, nlv)
+      ngroups <- lavsamplestats@ngroups
+      eta <- vector("list", ngroups)
+      for(g in 1:ngroups){
+        eta[[g]] <- etamat[lavdata@case.idx[[g]], , drop = FALSE]
+      }
+
+      ## implied meanvec + covmat
+      ## TODO replace with lav_predict_yhat and lavInspect?
+      ## (lav_predict_yhat unavailable from lavPredict with custom ETA)
+      #mnvec <- lavaan:::computeYHAT(lavmodel, lavmodel@GLIST,
+      #                              lavsamplestats, ETA = eta)
+      #covmat <- lavaan:::computeTHETA(lavmodel, lavmodel@GLIST)
+
+      #implied <- list(cov = covmat, mean = mnvec,
+      #                slopes = vector("list", ngroups),
+      #                th = vector("list", ngroups),
+      #                group.w = vector("list", ngroups))
+    } else {
+      implied <- lav_model_implied(lavmodel)
+    }
 
     ## check for missing, to see if we can easily get baseline ll for chisq
     mis <- FALSE
@@ -25,25 +52,36 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
     if(measure %in% c("logl", "chisq") & !mis){
         if(casewise){
             ll.samp <- rep(NA, sum(unlist(lavdata@nobs)))
+        } else if(conditional){
+            ll.samp <- 0
         } else {
             ## logl + baseline logl
             ll.samp <- c(0,0)
         }
 
         for(g in 1:length(implied$cov)){
-            mnvec <- as.numeric(implied$mean[[g]])
+            if(conditional){
+              mnvec <- implied$mean[[g]]
+            } else {
+              mnvec <- as.numeric(implied$mean[[g]])
+            }
+
             ## ensure symmetric:
             cmat <- (implied$cov[[g]] + t(implied$cov[[g]]))/2
             tmpll <- try(dmnorm(lavdata@X[[g]], mnvec, cmat, log=TRUE))
             if(inherits(tmpll, "try-error")) tmpll <- NA
 
-            sampmn <- apply(lavdata@X[[g]], 2, mean, na.rm=TRUE)
-            sampcov <- ((lavdata@nobs[[g]]-1)/(lavdata@nobs[[g]]))*cov(lavdata@X[[g]])
+            if(!conditional){
+                sampmn <- apply(lavdata@X[[g]], 2, mean, na.rm=TRUE)
+                sampcov <- ((lavdata@nobs[[g]]-1)/(lavdata@nobs[[g]]))*cov(lavdata@X[[g]])
 
-            basell <- dmnorm(lavdata@X[[g]], sampmn, sampcov, log=TRUE)
+                basell <- dmnorm(lavdata@X[[g]], sampmn, sampcov, log=TRUE)
+            }
 
             if(casewise){
                 ll.samp[lavdata@case.idx[[g]]] <- tmpll
+            } else if(conditional){
+                ll.samp <- ll.samp + sum(tmpll)
             } else {
                 tmpll <- c(sum(tmpll), sum(basell))
                 #tmpll <- -2*(sum(tmpll) - sum(basell))
@@ -71,7 +109,10 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
         lavoptions$test <- "standard"
         lavoptions$estimator <- "ML"
         ## control() is part of lavmodel (for now)
-        lavmodel@control <- list(optim.method="none")
+        lavoptions$optim.method <- "none"
+        if("control" %in% slotNames(lavmodel)){
+            lavmodel@control <- list(optim.method="none")
+        }
 
         fit.samp <- try(lavaan(slotParTable = lavpartable,
                                slotModel = lavmodel,
@@ -106,8 +147,9 @@ samp_lls <- function(lavjags        = NULL,
                      lavoptions     = NULL, 
                      lavcache       = NULL,
                      lavdata        = NULL,
-                     thin           = 5){
-    itnums <- sampnums(lavjags, thin=5)
+                     thin           = 5,
+                     conditional    = FALSE){
+    itnums <- sampnums(lavjags, thin = thin)
     nsamps <- length(itnums)
     nchain <- length(lavjags$mcmc)
     llmat <- array(NA, c(nsamps, nchain, 2)) ## logl + baseline logl
@@ -120,7 +162,8 @@ samp_lls <- function(lavjags        = NULL,
                                      lavsamplestats, 
                                      lavoptions, 
                                      lavcache,
-                                     lavdata)
+                                     lavdata,
+                                     conditional = conditional)
         }
     }
 
@@ -312,7 +355,7 @@ namecheck <- function(ov.names){
     forbidden <- c("mu", "invthetstar", "invtheta", "nu", "lambda", "eta",
                    "mu.eta", "invpsistar", "invpsi", "alpha", "beta",
                    "rho", "theta", "psi", "rstar", "cov", "ibpsi", "bpsi", "iden", "yvec",
-                   paste(".phant", 1:100, sep=""))
+                   paste(".phant", 1:100, sep=""), "def")
 
     forbid.idx <- which(ov.names %in% forbidden)
     

@@ -32,6 +32,10 @@ blavaan <- function(...,  # default lavaan arguments
         }
     }
 
+    if(blavmis == "fi" & "ordered" %in% dotNames){
+      stop("blavaan ERROR: missing='fi' cannot be used with ordinal data.")
+    }
+
     # covariance priors are now all srs or fa
     cplocs <- match(c("ov.cp", "lv.cp"), dotNames, nomatch = 0)
     if(any(cplocs > 0)){
@@ -62,7 +66,15 @@ blavaan <- function(...,  # default lavaan arguments
     # if do.fit supplied, save it for jags stuff
     jag.do.fit <- TRUE
     if("do.fit" %in% dotNames) jag.do.fit <- dotdotdot$do.fit
-    dotdotdot$do.fit <- FALSE        # implies se="none" and test="none"
+    if("warn" %in% dotNames){
+        origwarn <- dotdotdot$warn
+    } else {
+        origwarn <- TRUE
+    }
+    dotdotdot$do.fit <- TRUE
+    dotdotdot$se <- "none"; dotdotdot$test <- "none"
+    # run for 1 iteration to obtain info about equality constraints, for npar
+    dotdotdot$control <- list(iter.max = 1); dotdotdot$warn <- FALSE
     dotdotdot$meanstructure <- TRUE
     dotdotdot$missing <- "direct"   # direct/ml creates error? (bug in lavaan?)
     dotdotdot$estimator <- "default" # until 'Bayes' is accepted by lavaan()
@@ -114,18 +126,24 @@ blavaan <- function(...,  # default lavaan arguments
                 paste(lavArgsRemove[warn.idx], collapse = " "), "\n")
     }
 
+    # check for ordered data
+    if("ordered" %in% dotNames) {
+        stop("blavaan ERROR: ordinal variables are not yet supported.")
+        dotdotdot$missing <- "default"
+        dotdotdot$test <- "none"
+        dotNames <- names(dotdotdot)
+    }
+
     # call lavaan
     LAV <- do.call("lavaan", dotdotdot)
-
-    # check for ordered data
-    if(lavInspect(LAV, "categorical")) {
-        stop("blavaan ERROR: ordered data is not supported yet.")
-    }
 
     if(LAV@Data@data.type == "moment") {
         stop("blavaan ERROR: full data are required. consider using kd() from package semTools.")
     }
 
+    # turn warnings back on by default
+    LAV@Options$warn <- origwarn
+  
     # check for conflicting mv names
     namecheck(LAV@Data@ov.names[[1]])
     
@@ -219,7 +237,7 @@ blavaan <- function(...,  # default lavaan arguments
     # if inits is list
     initsin <- inits
     if(class(inits) == "list") initsin <- "jags"
-  
+
     # extract slots from dummy lavaan object
     lavpartable    <- LAV@ParTable
     if(!("prior" %in% names(lavpartable))) lavpartable$prior <- rep("", length(lavpartable$lhs))
@@ -295,26 +313,26 @@ blavaan <- function(...,  # default lavaan arguments
             if(suppressMessages(requireNamespace("modeest", quietly = TRUE))) runjags.options(mode.continuous = TRUE)
 
             if(jag.do.fit){
-              runjags.options(force.summary = TRUE)
-              rjcall <- "run.jags"
-              if(convergence == "auto"){
-                  rjcall <- "autorun.jags"
-                  if("raftery.options" %in% names(rjarg)){
-                      ## autorun defaults
-                      if(!("r" %in% names(rjarg$raftery.options))){
-                          rjarg$raftery.options$r <- .01
-                      }
-                      if(!("converge.eps" %in% names(rjarg$raftery.options))){
-                          rjarg$raftery.options$converge.eps <- .01
-                      }
-                  } else {
-                      rjarg$raftery.options <- list(r=.01, converge.eps=.01)
-                  }
-                  if(!("max.time" %in% names(rjarg))) rjarg$max.time <- "5m"
-              }
-              res <- try(do.call(rjcall, rjarg))
+                runjags.options(force.summary = TRUE)
+                rjcall <- "run.jags"
+                if(convergence == "auto"){
+                    rjcall <- "autorun.jags"
+                    if("raftery.options" %in% names(rjarg)){
+                        ## autorun defaults
+                        if(!("r" %in% names(rjarg$raftery.options))){
+                            rjarg$raftery.options$r <- .01
+                        }
+                        if(!("converge.eps" %in% names(rjarg$raftery.options))){
+                            rjarg$raftery.options$converge.eps <- .01
+                        }
+                    } else {
+                        rjarg$raftery.options <- list(r=.01, converge.eps=.01)
+                    }
+                    if(!("max.time" %in% names(rjarg))) rjarg$max.time <- "5m"
+                }
+                res <- try(do.call(rjcall, rjarg))
             } else {
-              res <- NULL
+                res <- NULL
             }
 
             if(inherits(res, "try-error")) {
@@ -334,40 +352,29 @@ blavaan <- function(...,  # default lavaan arguments
 
         timing$Estimate <- (proc.time()[3] - start.time)
         start.time <- proc.time()[3]
-        
+
         parests <- coeffun(lavpartable, jagtrans$pxpartable, res)
         x <- parests$x
-
         lavpartable <- parests$lavpartable
+        
+        attr(x, "control") <- jagcontrol
         if(jag.do.fit){
-          lavmodel <- lav_model_set_parameters(lavmodel, x = x)
-
-          ## TODO: needed??
-          # overwrite lavpartable$est to include def/con values
-          lavpartable$est <- lav_model_get_parameters(lavmodel = lavmodel,
-                                                      type = "user", extra = TRUE)
-
-          attr(x, "iterations") <- res$sample
-          attr(x, "converged") <- TRUE
-
-          attr(x, "control") <- jagcontrol
-
-          attr(x, "fx") <- get_ll(lavmodel = lavmodel, lavpartable = lavpartable,
-                                  lavsamplestats = lavsamplestats, lavoptions = lavoptions,
-                                  lavcache = lavcache, lavdata = lavdata)[1]
-
+            lavmodel <- lav_model_set_parameters(lavmodel, x = x)
+            attr(x, "iterations") <- res$sample
+            attr(x, "converged") <- TRUE
         } else {
-          x <- numeric(0L)
-          attr(x, "iterations") <- 0L; attr(x, "converged") <- FALSE
-          attr(x, "control") <- jagcontrol
-          attr(x, "fx") <- get_ll(lavmodel = lavmodel, 
-                                  lavpartable = lavpartable,
-                                  lavsamplestats = lavsamplestats,
-                                  lavoptions = lavoptions,
-                                  lavcache = lavcache,
-                                  lavdata = lavdata)[1]
-          
-          lavpartable$est <- lavpartable$start
+            x <- numeric(0L)
+            attr(x, "iterations") <- 0L
+            attr(x, "converged") <- FALSE          
+            lavpartable$est <- lavpartable$start
+        }
+
+        if(!("ordered" %in% dotNames)) {
+            attr(x, "fx") <- get_ll(lavmodel = lavmodel, lavpartable = lavpartable,
+                                    lavsamplestats = lavsamplestats, lavoptions = lavoptions,
+                                    lavcache = lavcache, lavdata = lavdata)[1]
+        } else {
+            attr(x, "fx") <- as.numeric(NA)
         }
     }
 
@@ -404,7 +411,8 @@ blavaan <- function(...,  # default lavaan arguments
     lavvcov <- list()
     VCOV <- NULL
     if(jag.do.fit){
-      VCOV <- diag(parests$sd) %*% parests$vcorr %*% diag(parests$sd)
+      dsd <- diag(parests$sd[names(parests$sd) %in% colnames(parests$vcorr)])
+      VCOV <- dsd %*% parests$vcorr %*% dsd
       lavjags <- c(lavjags, list(vcov = VCOV))
 
       # store vcov in new @vcov slot
@@ -456,7 +464,8 @@ blavaan <- function(...,  # default lavaan arguments
     ## 9b. misc blavaan changes to partable
     ## remove rhos from partable + ses, so lavaan built-ins work
     lavjags <- c(lavjags, list(origpt = lavpartable,
-                               inits = jagtrans$inits))
+                               inits = jagtrans$inits,
+                               pxpt = jagtrans$pxpartable))
     class(lavjags) <- "runjags"
 
     ## add monitors in jagextra as defined variables

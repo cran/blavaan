@@ -19,7 +19,7 @@ blavInspect <- function(blavobject, what, ...) {
     blavwhats <- c("start", "starting.values", "inits", "psrf",
                    "ac.10", "neff", "mcmc", "draws", "samples",
                    "n.chains", "cp", "dp", "postmode", "postmean",
-                   "postmedian", "hpd")
+                   "postmedian", "hpd", "jagnames")
 
     ## whats that are not handled
     nowhats <- c("mi", "modindices", "modification.indices",
@@ -43,6 +43,10 @@ blavInspect <- function(blavobject, what, ...) {
             if(add.labels) names(OUT) <- labs
             OUT
         } else if(what %in% c("mcmc", "draws", "samples", "hpd")){
+            ## add defined parameters to labels
+            pt <- blavobject@ParTable
+            pt$free[pt$op == ":="] <- max(pt$free, na.rm = TRUE) + 1:sum(pt$op == ":=")
+            labs <- lav_partable_labels(pt, type = "free")
             draws <- blavobject@external$runjags$mcmc
             draws <- lapply(draws, function(x) x[,idx])
             draws <- mcmc.list(draws)
@@ -68,6 +72,11 @@ blavInspect <- function(blavobject, what, ...) {
             } else{
                 OUT <- blavobject@external$runjags$summaries[idx,'Mode']
             }
+            if(add.labels) names(OUT) <- labs
+            OUT
+        } else if(what == "jagnames"){
+            OUT <- blavobject@ParTable$pxnames[blavobject@ParTable$free > 0]
+            OUT <- OUT[order(blavobject@ParTable$free[blavobject@ParTable$free > 0])]
             if(add.labels) names(OUT) <- labs
             OUT
         }

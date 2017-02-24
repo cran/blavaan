@@ -1,12 +1,16 @@
 Package: blavaan
 Title: Bayesian Latent Variable Analysis
-Version: 0.2-2
+Version: 0.2-3
 Authors@R: c(person(given = "Edgar", family = "Merkle",
                     role = c("aut", "cre"),
                     email = "merklee@missouri.edu"),
              person(given = "Yves", family = "Rosseel",
-                    role  = c("aut"),
-                    email = "Yves.Rosseel@UGent.be")
+                    role  = "aut",
+                    email = "Yves.Rosseel@UGent.be"),
+             person(given = "Mauricio",
+                    family = "Garnier-Villarreal",
+                    role = "ctb",
+                    email = "maugavilla@gmail.com")
             )
 Description: Fit a variety of Bayesian latent variable models, including confirmatory
    factor analysis, structural equation models, and latent growth curve models.
@@ -16,9 +20,10 @@ Imports: stats, utils, graphics, MASS, MCMCpack, coda, mnormt,
 Suggests: modeest, rjags, semTools, parallel
 License: GPL (>= 2)
 NeedsCompilation: no
-Packaged: 2016-09-26 20:55:14 UTC; merkle
+Packaged: 2017-02-24 17:43:10 UTC; merkle
 Author: Edgar Merkle [aut, cre],
-  Yves Rosseel [aut]
+  Yves Rosseel [aut],
+  Mauricio Garnier-Villarreal [ctb]
 Maintainer: Edgar Merkle <merklee@missouri.edu>
 Repository: CRAN
-Date/Publication: 2016-09-27 23:50:17
+Date/Publication: 2017-02-24 23:38:33

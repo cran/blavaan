@@ -5,7 +5,8 @@ blav_model_fit <- function(lavpartable = NULL,
                            VCOV        = NULL, 
                            TEST        = NULL) {
 
-    stopifnot(is.list(lavpartable), class(lavmodel) == "Model")
+    stopifnot(is.list(lavpartable), class(lavmodel) %in% c("Model",
+                                                           "lavModel"))
 
     # extract information from 'x'
     iterations <- attr(x, "iterations")
@@ -37,6 +38,10 @@ blav_model_fit <- function(lavpartable = NULL,
 
     # for convenience: compute lavmodel-implied Sigma and Mu
     implied <- lav_model_implied(lavmodel)
+    # change names back if conditional.x (see lav_model_implied.R)
+    if(lavmodel@conditional.x) {
+        names(implied) <- c("cov", "mean", "slopes", "th", "group.w")
+    }
 
     # partrace?
     if(!is.null(attr(x, "partrace"))) {

@@ -50,7 +50,7 @@ lav2jags <- function(model, lavdata = NULL, cp = "srs", lv.x.wish = FALSE, dp = 
     ## TODO seems like this is already hidden somewhere in lavaan...
     ncats <- sapply(ov.ord, function(x) length(grep(x, vnames$th[[1]])) + 1)
   }
-    
+
   lv.nox <- vnames$lv.nox[[1]]
   lv.names <- vnames$lv[[1]]
   ## ensure that lv.x names always come first (so we can possibly use dmnorm)
@@ -120,8 +120,8 @@ lav2jags <- function(model, lavdata = NULL, cp = "srs", lv.x.wish = FALSE, dp = 
     ov.names <- orig.ov.names[orig.ov.names %in% ov.names.nox]
     #ov.names <- ov.names.nox
   }
-  eqlabs <- partable$rhs[partable$op == "=="]
-  eqplabs <- partable$lhs[partable$op == "=="]
+  eqlabs <- partable$rhs[partable$op %in% c("==", ":=")]
+  eqplabs <- partable$lhs[partable$op %in% c("==", ":=")]
   eqplabs <- eqplabs[eqplabs %in% partable$label]
   eqlabs <- c(eqlabs, eqplabs)
 
@@ -152,13 +152,13 @@ lav2jags <- function(model, lavdata = NULL, cp = "srs", lv.x.wish = FALSE, dp = 
   ## Smaller partables for different parameter types +
   ## dimensions of parameter matrices (for initial values)
   ovintercepts <- partable[ovi,]
-  ovintercepts <- rbind(ovintercepts, partable[which(partable$op == "=="),])
+  ovintercepts <- rbind(ovintercepts, partable[which(partable$op %in% c("==", ":=")),])
   lvintercepts <- partable[lvi,]
-  lvintercepts <- rbind(lvintercepts, partable[which(partable$op == "=="),])
+  lvintercepts <- rbind(lvintercepts, partable[which(partable$op %in% c("==", ":=")),])
   loadings <- partable[load,]
-  loadings <- rbind(loadings, partable[which(partable$op == "=="),])
+  loadings <- rbind(loadings, partable[which(partable$op %in% c("==", ":=")),])
   regressions <- partable[reg,]
-  regressions <- rbind(regressions, partable[which(partable$op == "=="),])
+  regressions <- rbind(regressions, partable[which(partable$op %in% c("==", ":=")),])
 
   ## for missing=="fi", to model variables on rhs of regression
   ovreg <- unique(regressions$rhs[regressions$rhs %in% ov.names])
@@ -210,17 +210,24 @@ lav2jags <- function(model, lavdata = NULL, cp = "srs", lv.x.wish = FALSE, dp = 
     if(blavmis == "fi") stop("blavaan ERROR: missing='fi' not yet supported for ordinal data")
     for(j in 1:nmvs){
       if(ov.names[j] %in% ov.ord){
+        tvname <- partable$mat[partable$lhs == ov.names[j] &
+                               partable$lhs == partable$rhs &
+                               partable$op == "~~" &
+                               partable$group == 1]
         ord.num <- match(ov.names[j], ov.ord)
         TXT <- paste(TXT, t2, "ones[i,", ord.num, "] ~ dbern(probs[i,", ord.num,
-                     ",y[i,", j, "]])\n", sep="")
+                     ",", ov.names[j], "[i]])\n", sep="")
 
         ## category probs from pnorm
-        TXT <- paste(TXT, t2, "probs[i,", ord.num, ",1] <- pnorm(tau[", ord.num,
-                     ",1,g[i]], mu[i,", j, "], invthetstar[", j, ",g[i]])\n", sep="")
+        taus <- which(partable$lhs == ov.names[j] &
+                      partable$op == "|" &
+                      partable$group == 1)
+        TXT <- paste(TXT, t2, "probs[i,", ord.num, ",1] <- pnorm(tau[", partable$row[taus[1]],
+                     ",", partable$col[taus[1]], ",g[i]], mu[i,", j, "], 1/", tvname, "[", j, ",", j, ",g[i]])\n", sep="")
         if(ncats[ord.num] > 2){
           for(k in 2:(ncats[ord.num] - 1)){
             TXT <- paste(TXT, t2, "probs[i,", ord.num, ",", k, "] <- pnorm(tau[",
-                         ord.num, ",", k, ",g[i]], mu[i,", j, "], invthetstar[",
+                         partable$row[taus[k]], ",", partable$col[taus[k]], ",g[i]], mu[i,", j, "], 1/", tvname, "[", j, ",",
                          j, ",g[i]]) - sum(probs[i,", ord.num, ",1:", (k-1), "])\n",
                          sep="")
           }
@@ -453,9 +460,15 @@ lav2jags <- function(model, lavdata = NULL, cp = "srs", lv.x.wish = FALSE, dp = 
 
     y <- lapply(1:tmpnmvs, function(x) rep(NA,ntot))
     g <- rep(NA, ntot)
+    nX <- ncol(lavdata@X[[1]])
     for(k in 1:ngroups){
-      for(j in 1:tmpnmvs){
+      for(j in 1:nX){
         y[[j]][lavdata@case.idx[[k]]] <- lavdata@X[[k]][,j]
+      }
+      if(tmpnmvs > nX){
+        for(j in 1:(tmpnmvs - nX)){
+          y[[j + nX]][lavdata@case.idx[[k]]] <- lavdata@eXo[[k]][,j]
+        }
       }
       g[lavdata@case.idx[[k]]] <- k
     }
@@ -471,13 +484,16 @@ lav2jags <- function(model, lavdata = NULL, cp = "srs", lv.x.wish = FALSE, dp = 
       ntot <- sum(unlist(lavdata@nobs))
       ymat <- ymat[-nas,]
     }
-    
+
     if(blavmis == "fi"){
       ## variables on rhs of regression, in case missing
       y <- y[names(y) %in% ovreg]
     }
 
     jagsdata <- c(y, list(g=g, N=ntot))
+    if(any(partable$op == "|")){
+      jagsdata <- c(jagsdata, list(ones = matrix(1, ntot, tmpnmvs)))
+    }
 
     if(blavmis == "fi"){
       ## keep only modeled y's not on rhs of regression
@@ -619,13 +635,22 @@ coeffun <- function(lavpartable, pxpartable, rjob, fun = "mean") {
   lavpartable$prior[lavpartable$free > 0] <- pxpartable$prior[ptmatch]
   lavpartable$pxnames[lavpartable$free > 0] <- pxpartable$pxnames[ptmatch]
   lavpartable$jagpnum[lavpartable$free > 0] <- pxpartable$jagpnum[ptmatch]
+
+  ## defined variables
+  defmatch <- which(pxpartable$op == ":=")
+  if(length(defmatch) > 0){
+    lavpartable$est[lavpartable$op == ":="] <- pxpartable$est[defmatch]
+    lavpartable$psrf[lavpartable$op == ":="] <- pxpartable$psrf[defmatch]
+    lavpartable$pxnames[lavpartable$op == ":="] <- pxpartable$pxnames[defmatch]
+    lavpartable$jagpnum[lavpartable$op == ":="] <- pxpartable$jagpnum[defmatch]
+  }
   
   ## NB this automatically removes fixed parameters, just
   ##    like the psrf
   lmatch <- match(lavpartable$pxnames[lavpartable$free > 0],
                   rownames(rjob$crosscorr))
   vcorr <- rjob$crosscorr[lmatch, lmatch]
-  smatch <- match(lavpartable$pxnames[lavpartable$free > 0],
+  smatch <- match(lavpartable$pxnames[lavpartable$free > 0 | lavpartable$op == ":="],
                   rownames(rjob$summary$statistics),
                   nomatch=0)
   sdvec <- rjob$summary$statistics[smatch, "SD"]
