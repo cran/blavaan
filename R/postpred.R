@@ -1,12 +1,12 @@
 postpred <- function(lavpartable, lavmodel, lavoptions, 
                      lavsamplestats, lavdata, lavcache, lavjags,
-                     measure = "logl") {
+                     samplls, measure = "logl", thin = 5) {
 
     ## run through lavjags$mcmc, generate data from various posterior
     ## samples. thin like we do in samp_lls
-
-    samp.indices <- sampnums(lavjags, thin=5)
-    n.chains <- length(lavjags$mcmc)
+    lavmcmc <- make_mcmc(lavjags)
+    samp.indices <- sampnums(lavjags, thin=thin)
+    n.chains <- length(lavmcmc)
     psamp <- length(samp.indices)
   
     ## parallel across chains if we can
@@ -25,7 +25,7 @@ postpred <- function(lavpartable, lavmodel, lavoptions,
       for(i in 1:psamp){
         ## translate each posterior sample to a model-implied mean vector +
         ## cov matrix.
-        lavmodel <- fill_params(lavjags$mcmc[[j]][samp.indices[i],],
+        lavmodel <- fill_params(lavmcmc[[j]][samp.indices[i],],
                                 origlavmodel, lavpartable)
 
         ## generate data (some code from lav_bootstrap.R)
@@ -47,8 +47,8 @@ postpred <- function(lavpartable, lavmodel, lavoptions,
         ## compute (i) X2 of generated data and model-implied
         ## moments, along with (ii) X2 of real data and model-implied
         ## moments.
-        chisq.obs <- -2*(lavjags$samplls[i, j, 1] -
-                         lavjags$samplls[i, j, 2])
+        chisq.obs <- -2*(samplls[i, j, 1] -
+                         samplls[i, j, 2])
                              #get_ll(lavmodel = lavmodel,
                              #    lavpartable = lavpartable,
                              #    lavsamplestats = lavsamplestats,

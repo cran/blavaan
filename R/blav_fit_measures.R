@@ -11,12 +11,12 @@ function(object, fit.measures = "all", baseline.model = NULL) {
 })
 
 
-#fitMeasures <- fitmeasures <- function(object, fit.measures="all") {
 blav_fit_measures <- function(object, fit.measures = "all", 
                               baseline.model = NULL) {
 
     # has the model converged?
-    if(object@Fit@npar > 0L && !object@optim$converged) {
+    if(object@Fit@npar > 0L && !object@optim$converged &&
+       class(object@external$mcmcout) != "NULL") {
         warning("blavaan WARNING: the chains may not have converged.")
     }
 
@@ -126,7 +126,7 @@ blav_fit_measures <- function(object, fit.measures = "all",
         indices["ppp"] <- object@Fit@test[[2]]$stat
     }
     if(any(c("bic", "dic", "p_dic") %in% fit.measures)) {
-        df <- 2*(object@Fit@fx - mean(as.numeric(object@external$runjags$samplls[,,1])))
+        df <- 2*(object@Fit@fx - mean(as.numeric(object@external$samplls[,,1])))
         indices["bic"] <- -2*object@Fit@fx + npar*log(N)
         indices["dic"] <- -2*object@Fit@fx + 2*df
         indices["p_dic"] <- df
@@ -134,7 +134,7 @@ blav_fit_measures <- function(object, fit.measures = "all",
     if(any(c("waic", "p_waic", "looic", "p_loo") %in% fit.measures)) {
         lavopt <- object@Options
         lavopt$estimator <- "ML"
-        casells <- case_lls(object@external$runjags, object@Model,
+        casells <- case_lls(object@external$mcmcout, object@Model,
                             object@ParTable, object@SampleStats,
                             lavopt, object@Cache,
                             object@Data)

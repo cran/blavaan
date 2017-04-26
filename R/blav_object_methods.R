@@ -19,12 +19,12 @@ short.summary <- function(object) {
         if(object@Fit@converged) {
 	    cat(sprintf("blavaan (%s) results of %3i samples after %3i adapt+burnin iterations\n",
                     packageDescription("blavaan", fields="Version"),
-                    object@external$runjags$sample,
-                    object@external$runjags$burnin))
+                    object@external$sample,
+                    object@external$burnin))
         } else {
             cat(sprintf("** WARNING ** blavaan (%s) did NOT converge after %i adapt+burnin iterations\n", 
                 packageDescription("blavaan", fields="Version"),
-                object@external$runjags$burnin))
+                object@external$burnin))
             cat("** WARNING ** Proceed with caution\n")
         }
     } else {
@@ -214,13 +214,30 @@ function(object, header       = TRUE,
         newpt <- object@ParTable
         newpt$group[newpt$group == 0] <- 1 # for defined parameters
         PE$group[PE$group == 0] <- 1
+        jagtarget <- class(object@external$mcmcout) == "runjags"
+        if(!jagtarget){
+            rhorows <- which(newpt$mat == "rho")
+            if(length(rhorows) > 0){
+                newpt <- lapply(newpt, function(x) x[-rhorows])
+            }
+        }
 
         ## match jags names to partable, then partable to PE
-        pte2 <- which(!is.na(newpt$jagpnum))
+        if(jagtarget){
+            pte2 <- which(!is.na(newpt$jagpnum))
+        } else {
+            pte2 <- which(newpt$free > 0)
+        }
         peentry <- match(with(newpt, paste(lhs[pte2], op[pte2], rhs[pte2], group[pte2], sep="")),
                          paste(PE$lhs, PE$op, PE$rhs, PE$group, sep=""))
-        PE$ci.lower[peentry] <- object@external$runjags$HPD[newpt$jagpnum[pte2],'Lower95']
-        PE$ci.upper[peentry] <- object@external$runjags$HPD[newpt$jagpnum[pte2],'Upper95']
+        if(jagtarget){
+            PE$ci.lower[peentry] <- object@external$mcmcout$HPD[newpt$jagpnum[pte2],'Lower95']
+            PE$ci.upper[peentry] <- object@external$mcmcout$HPD[newpt$jagpnum[pte2],'Upper95']
+        } else {
+            parsumm <- rstan::summary(object@external$mcmcout)
+            PE$ci.lower[peentry] <- parsumm$summary[newpt$stansumnum[pte2],'2.5%']
+            PE$ci.upper[peentry] <- parsumm$summary[newpt$stansumnum[pte2],'97.5%']
+        }
 
         ## NB This is done so that we can remove fixed parameter hpd intervals without
         ##    making changes to lavaan's print.lavaan.parameterEstimates(). But maybe
@@ -241,7 +258,11 @@ function(object, header       = TRUE,
         }
         if(neff){
           PE$neff <- rep(NA, nrow(PE))
-          PE$neff[peentry] <- object@external$runjags$summaries[newpt$jagpnum[pte2],'SSeff']
+          if(jagtarget){
+            PE$neff[peentry] <- object@external$mcmcout$summaries[newpt$jagpnum[pte2],'SSeff']
+          } else {
+            PE$neff[peentry] <- parsumm$summary[newpt$stansumnum[pte2],'n_eff']
+          }
         }
         if(priors){
           PE$prior <- rep(NA, nrow(PE))
@@ -250,12 +271,20 @@ function(object, header       = TRUE,
         }
         if(postmedian){
           PE$Post.Med <- rep(NA, nrow(PE))
-          PE$Post.Med[peentry] <- object@external$runjags$summaries[newpt$jagpnum[pte2],'Median']
+          if(jagtarget){
+            PE$Post.Med[peentry] <- object@external$mcmcout$summaries[newpt$jagpnum[pte2],'Median']
+          } else {
+            PE$Post.Med[peentry] <- parsumm$summary[newpt$stansumnum[pte2],'50%']
+          }
         }
         if(postmode){
           PE$Post.Mode <- rep(NA, nrow(PE))
-          PE$Post.Mode[peentry] <- object@external$runjags$summaries[newpt$jagpnum[pte2],'Mode']
-          if(all(is.na(PE$Post.Mode))) warning("blavaan WARNING: Posterior modes require installation of the modeest package.")
+          if(jagtarget){
+            PE$Post.Mode[peentry] <- object@external$mcmcout$summaries[newpt$jagpnum[pte2],'Mode']
+            if(all(is.na(PE$Post.Mode))) warning("blavaan WARNING: Posterior modes require installation of the modeest package.")
+          } else {
+            warning("blavaan WARNING: Posterior modes not available for target='stan'.")
+          }
         }
         if(bf){
           ## we don't know whether priors=TRUE:
@@ -269,6 +298,7 @@ function(object, header       = TRUE,
           PE$logBF[is.na(PE$logBF)] <- ""
           PE$logBF <- sprintf(char.format, PE$logBF)
         }
+        
         ## alternative names because this is not ML
         penames <- names(PE)
         ## This could be called "Post.Mean" except constraints
@@ -279,11 +309,18 @@ function(object, header       = TRUE,
         names(PE)[penames == "ci.lower"] <- "HPD.025"
         names(PE)[penames == "ci.upper"] <- "HPD.975"
         names(PE)[penames == "psrf"] <- "PSRF"
-        print(PE, nd = nd)
 
+        print(PE, nd = nd)
     } # parameter estimates
 })
 
+# NB not absolutely necessary, except for
+# bug in lavaan 0.5-23.1097
+setMethod("coef", "blavaan",
+  function(object, type="free", labels=TRUE) {
+    class(object) <- "lavaan"
+    callNextMethod(object, type, labels)
+  })
 
 # setMethod("vcov", "blavaan",
 # function(object, labels=TRUE) {
@@ -293,7 +330,7 @@ function(object, header       = TRUE,
 #    if(object@Fit@npar > 0L && !object@Fit@converged)
 #        warning("blavaan WARNING: chains may not have converged, proceed with caution.")
 #    
-#    VarCov <- object@external$runjags$vcov
+#    VarCov <- object@external$mcmcout$vcov
 #
 #    labs <- lav_partable_labels(object@ParTable, type="free")
 #    
@@ -363,10 +400,25 @@ function(object, header       = TRUE,
 ##     else call
 ## })
 
-plot.blavaan <- function(x, pars, plot.type="trace", ...){
-    # NB: arguments go to plot.runjags()
-    parnames <- x@ParTable$pxnames[match(pars, x@ParTable$free)]
-    plot(x@external$runjags, plot.type=plot.type, vars=parnames, ...)
+plot.blavaan <- function(x, pars=NULL, plot.type="trace", ...){
+    # NB: arguments go to plot.runjags() or stan plot functions
+    if(x@Options$target == "jags"){
+        parnames <- x@ParTable$pxnames[match(pars, x@ParTable$free)]
+        ## TODO get lavaan parameter names to show up. Tougher than
+        ## expected... see line 216 of runjags::summary.R;
+        ## checkvalidrunjagsobject somehow destroys name changes.
+        plot(x@external$mcmcout, plot.type=plot.type, vars=parnames, ...)
+    } else {
+        plargs <- list(x = x@external$mcmcout,
+                       plotfun = plot.type)
+        if(length(pars) > 0){
+            allpars <- colnames(as.matrix(x@external$mcmcout))
+            parnums <- x@ParTable$stanpnum[match(pars, x@ParTable$free)]
+            parnames <- allpars[parnums]
+            plargs <- c(plargs, list(pars = parnames))
+        }
+        do.call(rstan::plot, plargs)
+    }
 }
     
 #setMethod("anova", signature(object = "blavaan"),

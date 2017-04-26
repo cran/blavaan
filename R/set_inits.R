@@ -3,7 +3,7 @@ set_inits <- function(partable, ov.cp, lv.cp, n.chains, inits){
   ## TODO write start values to new columns of coefvec, so can include in partable
   initvals <- vector("list", n.chains)
   names(initvals) <- paste("c", 1:n.chains, sep="")
-  pveclen <- max(partable$parnums[partable$mat != ""], na.rm = TRUE)
+  pveclen <- max(partable$freeparnums[partable$mat != ""], na.rm = TRUE)
 
   for(i in 1:n.chains){
     initvals[[i]] <- list(parvec = rep(NA, pveclen))
@@ -82,15 +82,7 @@ set_inits <- function(partable, ov.cp, lv.cp, n.chains, inits){
 
     ## extract matrix, dimensions
     for(j in 1:n.chains){
-      varparm <- (partable$lhs[i] == partable$rhs[i]) &
-                 (partable$op[i] == "~~")                 
-      if(varparm & !grepl("[var]", partable$prior[i], fixed = TRUE)){
-        initvals[[j]] <- c(initvals[[j]], ivs[j])
-        tmpname <- paste("pvec", partable$parnums[i], sep="")
-        names(initvals[[j]])[length(initvals[[j]])] <- tmpname
-      } else {
-        initvals[[j]][["parvec"]][partable$parnums[i]] <- ivs[j]
-      }
+      initvals[[j]][["parvec"]][partable$freeparnums[i]] <- ivs[j]
     }
   }
 
@@ -105,5 +97,94 @@ set_inits <- function(partable, ov.cp, lv.cp, n.chains, inits){
       initvals[[j]][["parvec"]] <- NULL
     }
   }
+  initvals
+}
+
+set_inits_stan <- function(partable, nfree, n.chains, inits){
+  ## Generate initial values for each chain
+  initvals <- vector("list", n.chains)
+  names(initvals) <- paste("c", 1:n.chains, sep="")
+  pveclen <- nfree[nfree > 0]
+
+  initmats <- list()
+  for(i in 1:length(pveclen)){
+    initmats <- c(initmats, list(array(NA, dim=pveclen[i])))
+    ## if(pveclen[i] == 1){
+    ##   initmats <- c(initmats, list(as.vector(NA)))
+    ## } else {
+    ##   initmats <- c(initmats, list(rep(NA, pveclen[i])))
+    ## }
+  }
+  names(initmats) <- paste0(names(pveclen), "free")
+
+  for(i in 1:n.chains){
+    initvals[[i]] <- initmats
+  }
+
+  partable$freeparnums[is.na(partable$freeparnums)] <- 0
+  freepartable <- partable[partable$freeparnums > 0,]
+  ## TODO need exported, or reverse rstan::lookup()
+  rosetta <- NULL
+  #rosetta <- rstan:::rosetta
+  ## alternate way to possibly get around export
+  ##rloc <- paste0(system.file("R", package="rstan"), "/sysdata")
+  ##lazyLoad(rloc)
+
+  for(i in 1:nrow(freepartable)){
+    tmppri <- freepartable$prior[i]
+
+    pricom <- unlist(strsplit(tmppri, "[, ()]+"))
+
+    if(inits == "prior"){
+      pricom[1] <- rosetta$RFunction[rosetta$StanFunction == pricom[1]]
+
+      ## Try to set sensible starting values, using some of the
+      ## prior information
+      if(grepl("dnorm", pricom[1])){
+        pricom[3] <- "1"
+        ## keep loadings/regressions on one side
+        if(grepl("lambda", freepartable$mat[i]) | grepl("beta", freepartable$prior[i])){
+          pricom[1] <- "dunif"
+          pricom[2] <- ".75"
+          pricom[3] <- "2"
+        }
+      }
+      ## Extreme correlations lead to errors, so keep them close to 0
+      if(grepl("dbeta", pricom[1])){
+        pricom[2] <- "100"
+        pricom[3] <- "100"
+      }
+
+      ## Switch to r instead of d for random inits
+      pricom[1] <- gsub("^d", "r", pricom[1])
+
+      ## Generate initial values
+      ## FIXME do something smarter upon failure
+      ivs <- try(do.call(pricom[1], list(n.chains, as.numeric(pricom[2]),
+                                     as.numeric(pricom[3]))), silent = TRUE)
+      if(inherits(ivs, "try-error")) ivs <- rep(1, n.chains)
+    } else {
+      ivs <- rep(freepartable$start[i], n.chains)
+    }
+
+    ## now (try to) ensure the jittered values won't crash on us
+    ## and converge
+    ## if(grepl("\\[sd\\]", freepartable$prior[i]) |
+    ##    grepl("\\[var\\]", freepartable$prior[i])){
+    ##   powval <- ifelse(grepl("\\[sd\\]", freepartable$prior[i]), -.5, -1)
+    ##   ivs <- ivs^powval
+    ##   ivs[ivs <= 0] <- -ivs[ivs <= 0]
+    ## }
+    if(grepl("beta", freepartable$prior[i])){
+      ivs <- rep(.5, n.chains)
+    }
+
+    ## extract matrix, dimensions
+    for(j in 1:n.chains){
+      matidx <- which(names(initvals[[j]]) == paste0(freepartable$mat[i], "free"))
+      initvals[[j]][[matidx]][freepartable$freeparnums[i]] <- ivs[j]
+    }
+  }
+
   initvals
 }

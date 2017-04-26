@@ -7,7 +7,12 @@ blav_model_fit <- function(lavpartable = NULL,
 
     stopifnot(is.list(lavpartable), class(lavmodel) %in% c("Model",
                                                            "lavModel"))
-
+    if(class(lavjags) != "NULL"){
+        lavmcmc <- make_mcmc(lavjags)
+    } else {
+        lavmcmc <- NULL
+    }
+      
     # extract information from 'x'
     iterations <- attr(x, "iterations")
     converged  <- attr(x, "converged")
@@ -25,7 +30,7 @@ blav_model_fit <- function(lavpartable = NULL,
     est <- lav_model_get_parameters(lavmodel = lavmodel, type = "user")
 
     # did we compute standard errors?
-    blaboot <- rearr_params(lavjags$mcmc, lavpartable)
+    blaboot <- rearr_params(lavmcmc, lavpartable)
     se <- lav_model_vcov_se(lavmodel = lavmodel, lavpartable = lavpartable,
                             VCOV = VCOV, BOOT = blaboot)
 
@@ -51,7 +56,7 @@ blav_model_fit <- function(lavpartable = NULL,
     }
 
     new("Fit",
-        npar       = max(lavpartable$free),
+        npar       = as.integer(max(lavpartable$free)),
         x          = x.copy,
         partrace   = PARTRACE,
         start      = lavpartable$start, # needed?
@@ -61,7 +66,7 @@ blav_model_fit <- function(lavpartable = NULL,
         fx.group   = fx.group,
         logl       = logl,
         logl.group = logl.group,
-        iterations = iterations,
+        iterations = as.integer(iterations),
         converged  = converged,
         control    = control,
         Sigma.hat  = implied$cov,
