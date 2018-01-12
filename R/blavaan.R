@@ -7,13 +7,15 @@ blavaan <- function(...,  # default lavaan arguments
                     burnin             ,
                     sample             ,
                     adapt              ,
-                    jagfile            = FALSE,
-                    jagextra           = list(),
+                    mcmcfile            = FALSE,
+                    mcmcextra           = list(),
                     inits              = "simple",
                     convergence        = "manual",
                     target             = "jags",
+                    save.lvs           = FALSE,
+                    jags.ic            = FALSE,
                     seed               = NULL,
-                    jagcontrol         = list()
+                    bcontrol         = list()
                    )
 {
     ## start timer
@@ -27,21 +29,38 @@ blavaan <- function(...,  # default lavaan arguments
     # default priors
     if(length(dp) == 0) dp <- dpriors(target = target)
 
+    # burnin/sample/adapt if not supplied (should only occur for direct
+    # blavaan call
+    sampargs <- c("burnin", "sample", "adapt")
+    suppargs <- which(!(sampargs %in% names(mc)))
+    if(length(suppargs) > 0){
+        if(target == "jags"){
+            defiters <- c(4000L, 10000L, 1000L)
+        } else {
+            defiters <- c(500L, 1000L, 1000L)
+        }
+        for(i in 1:length(suppargs)){
+            assign(sampargs[suppargs[i]], defiters[suppargs[i]])
+        }
+    }
+
     # ensure stan is here
     if(target == "stan"){
-      stop("blavaan ERROR: stan export not yet available")
+      if(convergence == "auto"){
+        stop("blavaan ERROR: auto convergence is unavailable for stan.")
+      }
+      # could also use requireNamespace + attachNamespace
       if(!(suppressMessages(requireNamespace("rstan", quietly = TRUE)))){
         stop("blavaan ERROR: rstan package is not installed.")
+      } else {
+        try(suppressMessages(attachNamespace("rstan")), silent = TRUE)
       }
-      attachNamespace("rstan")
-      rstan::rstan_options(auto_write = TRUE)
-      options(mc.cores = min(n.chains, parallel::detectCores()))
     }
 
     # if seed supplied, check that there is one per chain
     seedlen <- length(seed)
-    if(seedlen > 0 & seedlen != n.chains){
-      stop("blavaan ERROR: number of seeds must equal n.chains.")
+    if(seedlen > 0 & target == "jags" & seedlen != n.chains){
+      stop("blavaan ERROR: for JAGS, number of seeds must equal n.chains.")
     }
   
     # capture data augmentation/full information options
@@ -61,7 +80,7 @@ blavaan <- function(...,  # default lavaan arguments
     # covariance priors are now all srs or fa
     cplocs <- match(c("ov.cp", "lv.cp"), dotNames, nomatch = 0)
     if(any(cplocs > 0)){
-      cat("blavaan NOTE: Arguments ov.cp and lv.cp are deprecated. Use cp instead. ")
+      cat("blavaan NOTE: Arguments ov.cp and lv.cp are deprecated. Use cp instead. \n")
       if(any(dotdotdot[cplocs] == "fa")){
         cp <- "fa"
         cat("Using 'fa' approach for all covariances.\n")
@@ -75,6 +94,23 @@ blavaan <- function(...,  # default lavaan arguments
     }
     ## cannot use lavaan inits with fa priors; FIXME?
     if(cp == "fa" & inits %in% c("simple", "default")) inits <- "jags"
+    if(cp == "fa" & target == "stan"){
+      cat("blavaan NOTE: fa priors are not available with stan. srs priors will be used. \n")
+    }
+
+    # 'jag' arguments are now 'mcmc'
+    jagargs <- c("jagfile", "jagextra", "jagcontrol")
+    jaglocs <- match(jagargs, dotNames, nomatch = 0)
+    if(any(jaglocs > 0)){
+      cat(paste0("blavaan NOTE: the following argument(s) are deprecated: ",
+                 paste(jagargs[jaglocs > 0], collapse=" "),
+                 ".\n        the argument(s) now start with 'mcmc' instead of 'jag'. \n"))
+      newargs <- gsub("jag", "mcmc", jagargs[jaglocs > 0])
+      for(i in 1:length(newargs)){
+        assign(newargs[i], dotdotdot[[jaglocs[jaglocs > 0][i]]])
+      }
+      dotdotdot <- dotdotdot[-jaglocs]; dotNames <- dotNames[-jaglocs]
+    }
   
     # which arguments do we override?
     lavArgsOverride <- c("meanstructure", "missing", "estimator")
@@ -109,30 +145,24 @@ blavaan <- function(...,  # default lavaan arguments
     if("debug" %in% dotNames) {
         if(dotdotdot$debug)  {
             ## short burnin/sample
-            mc$burnin <- 1000
-            mc$sample <- 1000
+            burnin <- 100
+            sample <- 100
         }
     }
-    jarg <- c("burnin", "sample", "adapt")
-    mcj <- match(jarg, names(mc), 0L)
-    if(any(mcj > 0)){
-        mfj <- as.list(mc[mcj])
-        if(convergence == "auto"){
-            jarg <- c("startburnin", "startsample", "adapt")
-            names(mfj) <- jarg[mcj > 0]
-        }
-        if(target == "stan"){
-            jarg <- c("warmup", "iter", "adapt")
-            names(mfj) <- jarg[mcj > 0]
-            if("adapt" %in% names(mfj)){
-              mfj <- mfj[-which(names(mfj) == "adapt")]
-            }
-        }
-        if("sample" %in% names(mc)){
-            if(mc$sample*n.chains/5 < 1000) warning("blavaan WARNING: small sample drawn, proceed with caution.\n")
-        }
-    } else {
-        mfj <- list()
+
+    mfj <- list(burnin = burnin, sample = sample, adapt = adapt)
+
+    # now based on effective sample size
+    #if(mfj$sample*n.chains/5 < 1000) warning("blavaan WARNING: small sample drawn, proceed with caution.\n")
+    
+    if(convergence == "auto"){
+        names(mfj) <- c("startburnin", "startsample", "adapt")
+    }
+    if(target == "stan"){
+        names(mfj) <- c("warmup", "iter", "adapt")
+        ## stan iter argument includes warmup:
+        mfj$iter <- mfj$warmup + mfj$iter
+        mfj <- mfj[-which(names(mfj) == "adapt")]
     }
 
     if(target == "jags"){
@@ -179,6 +209,12 @@ blavaan <- function(...,  # default lavaan arguments
     }
 
     # call lavaan
+    mcdebug <- FALSE
+    if("debug" %in% dotNames){
+      ## only debug mcmc stuff
+      mcdebug <- dotdotdot$debug
+      dotdotdot <- dotdotdot[-which(dotNames == "debug")]
+    }
     LAV <- do.call("lavaan", dotdotdot)
 
     if(LAV@Data@data.type == "moment") {
@@ -194,7 +230,7 @@ blavaan <- function(...,  # default lavaan arguments
     ineq <- which(LAV@ParTable$op %in% c("<",">"))
     if(length(ineq) > 0) {
         LAV@ParTable <- lapply(LAV@ParTable, function(x) x[-ineq])
-        if(class(jagfile) == "logical") jagfile <- TRUE
+        if(class(mcmcfile) == "logical") mcmcfile <- TRUE
         warning("blavaan WARNING: blavaan does not currently handle inequality constraints.\ntry modifying the exported JAGS code.")
     }
     eqs <- which(LAV@ParTable$op == "==")
@@ -235,43 +271,46 @@ blavaan <- function(...,  # default lavaan arguments
         if(!prispec){
             LAV@ParTable$prior <- rep("", length(LAV@ParTable$id))
         }
-        ## first loading for each lv
         loadpt <- LAV@ParTable$op == "=~"
         lvs <- unique(LAV@ParTable$lhs[loadpt])
         fload <- NULL
-        for(i in 1:length(lvs)){
-            for(k in 1:max(LAV@ParTable$group)){
-                fload <- c(fload, which(LAV@ParTable$lhs == lvs[i] &
-                                        LAV@ParTable$op == "=~" &
-                                        LAV@ParTable$group == k)[1])
+        if(length(lvs) > 0){
+            for(i in 1:length(lvs)){
+                for(k in 1:max(LAV@ParTable$group)){
+                    fload <- c(fload, which(LAV@ParTable$lhs == lvs[i] &
+                                            LAV@ParTable$op == "=~" &
+                                            LAV@ParTable$group == k)[1])
+                }
             }
-        }
 
-        trunop <- ifelse(target == "stan", " T[0,]", " T(0,)")
-        for(i in 1:length(fload)){
-            if(LAV@ParTable$prior[fload[i]] != ""){
-                LAV@ParTable$prior[fload[i]] <- paste(LAV@ParTable$prior[fload[i]], trunop, sep="")
-            } else {
-                LAV@ParTable$prior[fload[i]] <- paste(dp[["lambda"]], trunop, sep="")
+            ## NB truncation doesn't work well in stan. instead
+            ##    use generated quantities after the fact.
+            trunop <- ifelse(target == "jags", " T(0,)", "")
+            for(i in 1:length(fload)){
+                if(LAV@ParTable$prior[fload[i]] != ""){
+                    LAV@ParTable$prior[fload[i]] <- paste(LAV@ParTable$prior[fload[i]], trunop, sep="")
+                } else {
+                    LAV@ParTable$prior[fload[i]] <- paste(dp[["lambda"]], trunop, sep="")
+                }
             }
         }
     }
 
-    # if jagfile is a directory, vs list, vs logical
+    # if mcmcfile is a directory, vs list, vs logical
     trans.exists <- FALSE
-    if(class(jagfile)=="character"){
-        jagdir <- jagfile
-        jagfile <- TRUE
-    } else if(class(jagfile)=="list"){
+    if(class(mcmcfile)=="character"){
+        jagdir <- mcmcfile
+        mcmcfile <- TRUE
+    } else if(class(mcmcfile)=="list"){
         trans.exists <- TRUE
         ## read syntax file
-        jagsyn <- readLines(jagfile$syntax)
+        jagsyn <- readLines(mcmcfile$syntax)
         ## load jagtrans object
-        load(jagfile$jagtrans)
+        load(mcmcfile$jagtrans)
         ## add new syntax
         jagtrans$model <- paste(jagsyn, collapse="\n")
         ## make sure we don't rewrite the file:
-        jagfile <- FALSE
+        mcmcfile <- FALSE
         ## we have no idea what they did, so wipe out the priors
         jagtrans$coefvec$prior <- ""
         jagdir <- "lavExport"
@@ -327,47 +366,59 @@ blavaan <- function(...,  # default lavaan arguments
                 jagtrans <- try(lav2mcmc(model = lavpartable, lavdata = lavdata,
                                          cp = cp, lv.x.wish = lavoptions$auto.cov.lv.x,
                                          dp = dp, n.chains = n.chains,
-                                         mcmcextra = jagextra, inits = initsin,
+                                         mcmcextra = mcmcextra, inits = initsin,
                                          blavmis = blavmis, target="jags"),
                                 silent = TRUE)
             } else {
-                ## TODO rename this
                 jagtrans <- try(lav2stan(model = LAV,
                                          lavdata = lavdata,
                                          dp = dp, n.chains = n.chains,
-                                         mcmcextra = jagextra,
-                                         inits = initsin),
+                                         mcmcextra = mcmcextra,
+                                         inits = initsin,
+                                         debug = mcdebug),
                                 silent = TRUE)
             }
         }
 
         if(!inherits(jagtrans, "try-error")){
-            if(jagfile){
-                ## TODO decide jag/stan extension
+            if(mcmcfile){
                 dir.create(path=jagdir, showWarnings=FALSE)
-                cat(jagtrans$model, file = paste(jagdir, "/sem.jag",
+                fext <- ifelse(target=="jags", "jag", "stan")
+                cat(jagtrans$model, file = paste(jagdir, "/sem.",
+                                               fext, sep=""))
+                if(target=="jags"){
+                    save(jagtrans, file = paste(jagdir, "/semjags.rda",
+                                                sep=""))
+                } else {
+                    stantrans <- jagtrans
+                    save(stantrans, file = paste(jagdir, "/semstan.rda",
                                                  sep=""))
-                save(jagtrans, file = paste(jagdir, "/semjags.rda",
-                                            sep=""))
+                }
             }
 
             ## add extras to monitor, if specified
             sampparms <- jagtrans$monitors
-            if("monitor" %in% names(jagextra)){
-                sampparms <- c(sampparms, jagextra$monitor)
+            if("monitor" %in% names(mcmcextra)){
+                sampparms <- c(sampparms, mcmcextra$monitor)
             }
+            if(save.lvs) sampparms <- c(sampparms, "eta")
 
             if(initsin == "jags"){
                 jagtrans$inits <- vector("list", n.chains)
             }
             if(class(inits) == "list") jagtrans$inits <- inits
 
-            ## add seed to inits; FIXME only for jags?
-            if(seedlen > 0){
+            ## add seed to inits; for stan, just add it to
+            ## bcontrol
+            if(seedlen > 0 & target == "jags"){
                 sdinit <- lapply(seed, function(x) list(.RNG.seed = x,
                                                         .RNG.name = "base::Super-Duper"))
                 for(i in 1:n.chains){
                     jagtrans$inits[[i]] <- c(jagtrans$inits[[i]], sdinit[[i]])
+                }
+            } else if(seedlen > 0 & target == "stan"){
+                if(!("seed" %in% names(bcontrol))){
+                    bcontrol <- c(bcontrol, list(seed = seed))
                 }
             }
 
@@ -383,7 +434,7 @@ blavaan <- function(...,  # default lavaan arguments
             }
 
             ## user-supplied jags params
-            rjarg <- c(rjarg, mfj, jagcontrol)
+            rjarg <- c(rjarg, mfj, bcontrol)
 
             if(target == "jags"){
                 ## obtain posterior modes
@@ -420,12 +471,18 @@ blavaan <- function(...,  # default lavaan arguments
 
             if(inherits(res, "try-error")) {
                 if(!trans.exists){
-                    ## TODO decide jags vs stan extension
                     dir.create(path=jagdir, showWarnings=FALSE)
-                    cat(jagtrans$model, file = paste(jagdir, "/sem.jag",
+                    fext <- ifelse(target=="jags", "jag", "stan")
+                    cat(jagtrans$model, file = paste(jagdir, "/sem.",
+                                                     fext, sep=""))
+                    if(target=="jags"){
+                        save(jagtrans, file = paste(jagdir, "/semjags.rda",
+                                                    sep=""))
+                    } else {
+                        stantrans <- jagtrans
+                        save(stantrans, file = paste(jagdir, "/semstan.rda",
                                                      sep=""))
-                    save(jagtrans, file = paste(jagdir, "/semjags.rda",
-                                                sep=""))
+                    }
                 }
                 stop("blavaan ERROR: problem with MCMC estimation.  The model syntax and data have been exported.")
             }
@@ -437,46 +494,56 @@ blavaan <- function(...,  # default lavaan arguments
         timing$Estimate <- (proc.time()[3] - start.time)
         start.time <- proc.time()[3]
 
-        ## TODO S3 method for coeffun?
         if(target == "jags"){
-            parests <- coeffun(lavpartable, jagtrans$pxpartable, res)
+          parests <- coeffun(lavpartable, jagtrans$pxpartable, res)
+          stansumm <- NA
         } else {
-            parests <- coeffun_stan(jagtrans$pxpartable, res)
+          parests <- coeffun_stan(jagtrans$pxpartable, res)
+          stansumm <- parests$stansumm
         }
         x <- parests$x
         lavpartable <- parests$lavpartable
 
-        attr(x, "control") <- jagcontrol
         if(jag.do.fit){
             lavmodel <- lav_model_set_parameters(lavmodel, x = x)
             if(target == "jags"){
-                if(convergence == "auto"){
-                    attr(x, "iterations") <- res$sample
-                    sample <- res$sample
-                    burnin <- res$burnin
-                } else {
-                    attr(x, "iterations") <- rjarg$sample
-                }
+                attr(x, "iterations") <- res$sample
+                sample <- res$sample
+                burnin <- res$burnin
             } else {
                 wrmup <- ifelse(length(rjarg$warmup) > 0,
                                 rjarg$warmup, floor(rjarg$iter/2))
-                attr(x, "iterations") <- wrmup
-                # saved in @external so summary() can use it:
-                burnin <- wrmup
-                sample <- sample - wrmup
+                attr(x, "iterations") <- sample
+                # burnin + sample already defined, will be saved in
+                # @external so summary() can use it:
+                #burnin <- wrmup
+                #sample <- sample - wrmup
             }
             attr(x, "converged") <- TRUE
         } else {
-            #x <- numeric(0L)
+            x <- numeric(0L)
             attr(x, "iterations") <- 0L
             attr(x, "converged") <- FALSE
             lavpartable$est <- lavpartable$start
+            stansumm <- NULL
         }
+        attr(x, "control") <- bcontrol
 
         if(!("ordered" %in% dotNames)) {
             attr(x, "fx") <- get_ll(lavmodel = lavmodel, lavpartable = lavpartable,
                                     lavsamplestats = lavsamplestats, lavoptions = lavoptions,
                                     lavcache = lavcache, lavdata = lavdata)[1]
+            if(save.lvs) {
+                if(target == "jags"){
+                    fullpmeans <- summary(make_mcmc(res))[[1]][,"Mean"]
+                } else {
+                    fullpmeans <- rstan::summary(res)$summary[,"mean"]
+                }
+                cfx <- NA #get_ll(fullpmeans, lavmodel = lavmodel, lavpartable = lavpartable,
+                              #lavsamplestats = lavsamplestats, lavoptions = lavoptions,
+                              #lavcache = lavcache, lavdata = lavdata,
+                              #conditional = TRUE)[1]
+            }
         } else {
             attr(x, "fx") <- as.numeric(NA)
         }
@@ -487,8 +554,11 @@ blavaan <- function(...,  # default lavaan arguments
     ## compute/store some model-implied statistics
     lavimplied <- lav_model_implied(lavmodel)
     if(jag.do.fit & n.chains > 1){
-      ## this also checks convergence of monitors from jagextra, which may not be optimal
-      if(any(lavpartable$psrf[!is.na(lavpartable$psrf)] > 1.2)) attr(x, "converged") <- FALSE
+      ## this also checks convergence of monitors from mcmcextra, which may not be optimal
+      psrfrows <- which(!is.na(lavpartable$psrf) &
+                        !is.na(lavpartable$free) &
+                        lavpartable$free > 0)
+      if(any(lavpartable$psrf[psrfrows] > 1.2)) attr(x, "converged") <- FALSE
 
       ## warn if psrf is large
       if(!attr(x, "converged") && lavoptions$warn) {
@@ -499,10 +569,31 @@ blavaan <- function(...,  # default lavaan arguments
     ## fx is mean ll, where ll is marginal log-likelihood (integrate out lvs)
     if(lavoptions$test != "none") {
       cat("Computing posterior predictives...\n")
+      lavmcmc <- make_mcmc(res)
       samplls <- samp_lls(res, lavmodel, lavpartable, lavsamplestats,
-                          lavoptions, lavcache, lavdata)
+                          lavoptions, lavcache, lavdata, lavmcmc)
+      if(jags.ic) {
+        sampkls <- samp_kls(res, lavmodel, lavpartable,
+                            lavsamplestats, lavoptions, lavcache,
+                            lavdata, lavmcmc, conditional = FALSE)
+      } else {
+        sampkls <- NA
+      }
+      
+      if(save.lvs) {
+        csamplls <- NA #samp_lls(res, lavmodel, lavpartable,
+                         #    lavsamplestats, lavoptions, lavcache,
+                         #    lavdata, lavmcmc, conditional = TRUE)
+        if(jags.ic) {
+          csampkls <- NA #samp_kls(res, lavmodel, lavpartable,
+                           #   lavsamplestats, lavoptions, lavcache,
+                           #   lavdata, lavmcmc, conditional = TRUE)
+        } else {
+          csampkls <- NA
+        }
+      }
     } else {
-      samplls <- NULL
+      samplls <- NA
     }
 
     timing$PostPred <- (proc.time()[3] - start.time)
@@ -517,6 +608,7 @@ blavaan <- function(...,  # default lavaan arguments
     if(jag.do.fit){
       dsd <- diag(parests$sd[names(parests$sd) %in% colnames(parests$vcorr)])
       VCOV <- dsd %*% parests$vcorr %*% dsd
+      rownames(VCOV) <- colnames(VCOV) <- colnames(parests$vcorr)
       #lavjags <- c(lavjags, list(vcov = VCOV))
 
       # store vcov in new @vcov slot
@@ -543,7 +635,8 @@ blavaan <- function(...,  # default lavaan arguments
                                 lavcache            = lavcache,
                                 lavjags             = lavjags,
                                 samplls             = samplls,
-                                jagextra            = jagextra)
+                                jagextra            = mcmcextra,
+                                stansumm            = stansumm)
         if(verbose) cat(" done.\n")
     }
     timing$TEST <- (proc.time()[3] - start.time)
@@ -570,9 +663,16 @@ blavaan <- function(...,  # default lavaan arguments
         lavpartable$logBF <- SDBF(lavpartable)
     }
 
-    ## add monitors in jagextra as defined variables
-    if(length(jagextra$monitor) > 0){
-      lavpartable <- add_monitors(lavpartable, lavjags, jagextra)
+    ## add monitors in mcmcextra as defined variables (except reserved monitors)
+    if(length(mcmcextra$monitor) > 0){
+        reservemons <- which(mcmcextra$monitor %in% c('deviance', 'pd', 'popt',
+                                                     'dic', 'ped', 'full.pd', 'eta'))
+
+        if(length(reservemons) < length(mcmcextra$monitor)){
+            jecopy <- mcmcextra
+            jecopy$monitor <- jecopy$monitor[-reservemons]
+            lavpartable <- add_monitors(lavpartable, lavjags, jecopy)
+        }
     }
 
     ## 9b. move some stuff from lavfit to optim, for lavaan 0.5-21
@@ -586,7 +686,13 @@ blavaan <- function(...,  # default lavaan arguments
                     origpt = lavpartable, inits = jagtrans$inits,
                     pxpt = jagtrans$pxpartable, burnin = burnin,
                     sample = sample)
-    
+    if(target == "stan") extslot <- c(extslot, list(stansumm = stansumm))
+    if(jags.ic) extslot <- c(extslot, list(sampkls = sampkls))
+    if(save.lvs) {
+      extslot <- c(extslot, list(cfx = cfx, csamplls = csamplls))
+      if(jags.ic) extslot <- c(extslot, list(csampkls = csampkls))
+    }
+  
     ## move total to the end
     timing$total <- (proc.time()[3] - start.time0)
     tt <- timing$total
@@ -613,20 +719,26 @@ blavaan <- function(...,  # default lavaan arguments
                    test         = TEST                 # copied for now
                   )
   
-    # post-fitting check
+    # post-fitting checks
     if(attr(x, "converged")) {
         lavInspect(blavaan, "post.check")
     }
 
+    if(jag.do.fit & lavoptions$warn){
+        if(any(blavInspect(blavaan, 'neff') < 100)){
+            warning("blavaan WARNING: Small effective sample sizes (< 100) for some parameters.")
+        }
+    }
+    
     blavaan
 }
 
 ## cfa + sem
 bcfa <- bsem <- function(..., cp = "srs", dp = NULL,
     n.chains = 3, burnin, sample, adapt,
-    jagfile = FALSE, jagextra = list(), inits = "simple",
-    convergence = "manual", target = "jags", seed = NULL,
-    jagcontrol = list()) {
+    mcmcfile = FALSE, mcmcextra = list(), inits = "simple",
+    convergence = "manual", target = "jags", save.lvs = FALSE,
+    jags.ic = FALSE, seed = NULL, bcontrol = list()) {
 
     dotdotdot <- list(...)
     std.lv <- ifelse(any(names(dotdotdot) == "std.lv"), dotdotdot$std.lv, FALSE)
@@ -646,15 +758,31 @@ bcfa <- bsem <- function(..., cp = "srs", dp = NULL,
     mc$auto.delta      = TRUE
     mc[[1L]] <- quote(blavaan)
 
+    ## change defaults depending on jags vs stan
+    sampargs <- c("burnin", "sample", "adapt")
+    if(target == "jags"){
+        defiters <- c(4000L, 10000L, 1000L)
+    } else {
+        defiters <- c(500L, 1000L, 1000L)
+    }
+    suppargs <- which(!(sampargs %in% names(mc)))
+
+    if(length(suppargs) > 0){
+        for(i in 1:length(suppargs)){
+            mc[[(length(mc)+1)]] <- defiters[suppargs[i]]
+            names(mc)[length(mc)] <- sampargs[suppargs[i]]
+        }
+    }
+
     eval(mc, parent.frame())
 }
 
 # simple growth models
 bgrowth <- function(..., cp = "srs", dp = NULL,
     n.chains = 3, burnin, sample, adapt,
-    jagfile = FALSE, jagextra = list(), inits = "simple",
-    convergence = "manual", target = "jags", seed = NULL,
-    jagcontrol = list()) {
+    mcmcfile = FALSE, mcmcextra = list(), inits = "simple",
+    convergence = "manual", target = "jags", save.lvs = FALSE,
+    jags.ic = FALSE, seed = NULL, bcontrol = list()) {
 
     dotdotdot <- list(...)
     std.lv <- ifelse(any(names(dotdotdot) == "std.lv"), dotdotdot$std.lv, FALSE)
@@ -672,5 +800,21 @@ bgrowth <- function(..., cp = "srs", dp = NULL,
     mc$auto.delta      = TRUE
     mc[[1L]] <- quote(blavaan)
 
+    ## change defaults depending on jags vs stan
+    sampargs <- c("burnin", "sample", "adapt")
+    if(target == "jags"){
+        defiters <- c(4000L, 10000L, 1000L)
+    } else {
+        defiters <- c(500L, 1000L, 1000L)
+    }
+    suppargs <- which(!(sampargs %in% names(mc)))
+
+    if(length(suppargs) > 0){
+        for(i in 1:length(suppargs)){
+            mc[[(length(mc)+1)]] <- defiters[suppargs[i]]
+            names(mc)[length(mc)] <- sampargs[suppargs[i]]
+        }
+    }
+    
     eval(mc, parent.frame())
 }

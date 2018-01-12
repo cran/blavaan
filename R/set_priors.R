@@ -61,9 +61,6 @@ set_parvec <- function(TXT2, partable, dp, cp, lv.x.wish, lv.names.x, target="ja
                 partable$mat[i] <- rhoinf[[1]][1]
                 partable$row[i] <- rhoinf[[1]][2]
                 partable$col[i] <- rhoinf[[1]][3]
-                if(partable$free[i] == 0){
-                    partable$ustart[i] <- (as.numeric(partable$ustart[i]) + 1)/2
-                }
             }
           
             ## start parameter assignment
@@ -71,7 +68,9 @@ set_parvec <- function(TXT2, partable, dp, cp, lv.x.wish, lv.names.x, target="ja
                           partable$row[i], ",", partable$col[i],
                           ",", partable$group[i], "] ", eqop,
                           " ", sep="")
-            if(grepl("rho", partable$id[i])) TXT2 <- paste(TXT2, "-1 + 2*", sep="")
+            if(grepl("rho", partable$id[i]) & partable$free[i] > 0){
+              TXT2 <- paste(TXT2, "-1 + 2*", sep="")
+            }
           
             if(partable$free[i] == 0 & partable$op[i] != ":="){
                 if(is.na(partable$ustart[i])){
@@ -84,6 +83,11 @@ set_parvec <- function(TXT2, partable, dp, cp, lv.x.wish, lv.names.x, target="ja
                 }
             } else if(length(eqpar) > 0){
                 eqpar <- which(partable$plabel == partable$lhs[eqpar])
+                ## in case it is an "expanded" variance
+                if(length(eqpar) > 1){
+                    if(length(eqpar) > 2) stop("blavaan ERROR: problem with parameter equality constraints")
+                    eqpar <- eqpar[which(partable$freeparnums[eqpar] > 0)]
+                }
                 if(partable$freeparnums[eqpar] == 0){
                     eqtxt <- paste(partable$mat[eqpar], "[",
                                    partable$row[eqpar], ",",
@@ -113,14 +117,21 @@ set_parvec <- function(TXT2, partable, dp, cp, lv.x.wish, lv.names.x, target="ja
                                           text=partable$rhs[compeq]))
                 pvnum <- match(rhsvars, partable$label)
 
-                rhstrans <- paste("[", partable$freeparnums[pvnum], "]",
+                rhstrans <- paste(partable$mat[pvnum], "[",
+                                  partable$row[pvnum], ",",
+                                  partable$col[pvnum], ",",
+                                  partable$group[pvnum], "]",
                                   sep="")
 
-                jageq <- partable$rhs[compeq]
-                for(j in 1:length(rhsvars)){
-                    jageq <- gsub(rhsvars[j], rhstrans[j], jageq)
-                }
-                jageq <- gsub("[", "parvec[", jageq, fixed = TRUE)
+                oldjageq <- partable$rhs[compeq]
+                transtab <- as.list(rhstrans)
+                names(transtab) <- rhsvars
+                jagexpr <- parse(text=oldjageq)[[1]]
+                jageq <- do.call("substitute", list(jagexpr,
+                                                    transtab))
+                jageq <- paste(deparse(jageq, width.cutoff = 500), collapse="")
+
+                jageq <- gsub('\"', '', jageq)
 
                 TXT2 <- paste(TXT2, jageq, eolop, sep="")
             } else {
@@ -189,14 +200,22 @@ set_parvec <- function(TXT2, partable, dp, cp, lv.x.wish, lv.names.x, target="ja
     covs <- unique(partable$lhs[grep(".phant", partable$lhs)])
     
     if(length(covs) > 0){
-        TXT2 <- paste(TXT2, "\n\n", t1, commop, "Inferential covariances", sep="")
+      TXT2 <- paste(TXT2, "\n\n", t1, commop, "Inferential covariances", sep="")
         for(i in 1:length(covs)){
             for(k in 1:max(partable$group)){
-                varlocs <- which(partable$lhs == covs[i] &
-                                 partable$op == "=~" &
+                varlocs <- which(((partable$lhs == covs[i] &
+                                   partable$op == "=~") |
+                                  (partable$rhs == covs[i] &
+                                   partable$op == "~")) &
                                  partable$group == k)
                 vartxt <- "star"
                 vars <- partable$rhs[varlocs]
+                ## catch where we need lhs instead of rhs
+                lhsvars <- grepl(".phant", vars)
+                if(any(lhsvars)){
+                    vars[lhsvars] <- partable$lhs[varlocs[lhsvars]]
+                }
+
                 if(length(varlocs) == 0){
                     ## lv
                     varlocs <- which(partable$rhs == covs[i] &
@@ -215,7 +234,8 @@ set_parvec <- function(TXT2, partable, dp, cp, lv.x.wish, lv.names.x, target="ja
                               grepl(vartxt, partable$mat))
 
                 matname <- ifelse(grepl("theta", partable$mat[var1]), "theta", "psi")
-                phpars <- which(partable$lhs == covs[i] &
+                phpars <- which((partable$lhs == covs[i] |
+                                 partable$rhs == covs[i]) &
                                 partable$group == k)
                 if(length(phpars) == 1){
                     phpars <- which(partable$rhs == covs[i] &

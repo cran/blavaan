@@ -216,8 +216,8 @@ nlvcovs)
           if(partable$mat[covpars[i]] == "psi") rhomat <- "lvrho"
           rhoind <- paste(partable$row[covpars[i]], ",", partable$col[covpars[i]], sep="")
           ## srs priors
-          partable$free[tmprows[1:3]] <- 0
-          partable$exo[tmprows[1:3]] <- 0
+          partable$free[tmprows[1:3]] <- 0L
+          partable$exo[tmprows[1:3]] <- 0L
           partable$ustart[tmprows[1]] <- paste("sqrt(abs(", rhomat, "[", rhoind, ",", k, "])*", tmpv1, ")", sep="")
           partable$ustart[tmprows[2]] <- paste("(-1 + 2*step(", rhomat, "[", rhoind, ",", k,
                                              "]))*sqrt(abs(", rhomat, "[", rhoind, ",", k, "])*", tmpv2, ")", sep="")
@@ -343,13 +343,25 @@ set_mv0 <- function(partable, ov.names, ngroups) {
                                partable$rhs == ovn[i] &
                                partable$group == j)
 
-                ## This should always be length 1 because, if it is also
-                ## an indicator of another lv (with other mvs), then
-                ## we can estimate the variance
-                if(length(lvloc) > 1){
+                lvreg <- which(partable$op == "~" &
+                               partable$lhs == ovn[i] &
+                               partable$group == j)
+
+                lvcov <- which(partable$op == "~~" &
+                               (partable$lhs %in% partable$lhs[lvloc] |
+                                partable$rhs %in% partable$lhs[lvloc]) &
+                               partable$lhs != partable$rhs)
+
+                ## If this is an indicator of multiple lvs or
+                ## has covariances attached, we cannot handle it
+                ## in conditional (on lv) form:
+                if(length(lvloc) + length(lvreg) + length(lvcov) > 1){
+                    if(length(mvloc) > 1){
+                        stop("blavaan ERROR: Problem with ov variances fixed to 0.")
+                    }
                     partable$ustart[mvloc] <- .001
-                    warning(paste("blavaan WARNING: The variance of variable", ovn[i],
-                               "in group", j, "has been fixed to .001 instead of 0 (necessary for JAGS).\n"))
+                    message(paste("blavaan NOTE: The variance of variable", ovn[i],
+                               "in group", j, "has been fixed to .001 instead of 0 (necessary for conditional model specification).\n"))
                 } else {
                     lvname <- partable$lhs[lvloc]
 
@@ -367,7 +379,7 @@ set_mv0 <- function(partable, ov.names, ngroups) {
                     partable$free[lvvar] <- partable$free[mvloc]
                     partable$ustart[lvvar] <- partable$ustart[mvloc]
                     partable$plabel[lvvar] <- partable$plabel[mvloc]
-                    partable$start[lvvar] <- partable$plabel[mvloc]
+                    partable$start[lvvar] <- partable$start[mvloc]
 
                     partable$free[mvloc] <- tmpfree
                     partable$ustart[mvloc] <- tmpustart
@@ -442,6 +454,7 @@ set_phanvars <- function(partable, ov.names, lv.names, ov.cp, lv.cp, ngroups){
                     partable$parnums[nrow(partable)] <- max(partable$parnums, na.rm=TRUE) + 1
                 }
                 partable$free[vvar] <- 0
+                partable$label[vvar] <- ""
                 partable$ustart[vvar] <- eqconst
             }
         }

@@ -21,7 +21,8 @@ blavInspect <- function(blavobject, what, ...) {
     blavwhats <- c("start", "starting.values", "inits", "psrf",
                    "ac.10", "neff", "mcmc", "draws", "samples",
                    "n.chains", "cp", "dp", "postmode", "postmean",
-                   "postmedian", "hpd", "jagnames", "stannames")
+                   "postmedian", "hpd", "jagnames", "stannames",
+                   "fscores", "lvs", "fsmeans", "lvmeans")
 
     ## whats that are not handled
     nowhats <- c("mi", "modindices", "modification.indices",
@@ -71,14 +72,62 @@ blavInspect <- function(blavobject, what, ...) {
             pt$free[pt$op == ":="] <- max(pt$free, na.rm = TRUE) + 1:sum(pt$op == ":=")
             labs <- lav_partable_labels(pt, type = "free")
             draws <- make_mcmc(blavobject@external$mcmcout)
-            draws <- lapply(draws, function(x) x[,idx])
+            draws <- lapply(draws, function(x) mcmc(x[,idx]))
             draws <- mcmc.list(draws)
             if(what == "hpd"){
                 pct <- .95
-                if("level" %in% names(dotdotdot)) pct <- dotdotdot$level
+                if("level" %in% dotNames) pct <- dotdotdot$level
                 draws <- mcmc(do.call("rbind", draws))
                 draws <- HPDinterval(draws, pct)
                 if(add.labels) rownames(draws) <- labs
+            }
+            draws
+        } else if(what %in% c("fscores","lvs","fsmeans","lvmeans")){
+            if(jagtarget){
+                etas <- any(blavobject@external$mcmcout$monitor == "eta")
+            } else {
+                etas <- any(grepl("eta", rownames(blavobject@external$stansumm)))
+            }
+            if(!etas) stop("blavaan ERROR: factor scores not saved; set save.lvs=TRUE")
+
+            ## how many lvs, excluding phantoms
+            lvmn <- lavInspect(blavobject, "mean.lv")
+            if(any(class(lvmn) == "list")){
+                nlv <- length(lvmn[[1]])
+            } else {
+                nlv <- length(lvmn)
+            }
+
+            nsamp <- sum(lavInspect(blavobject, "nobs"))
+
+            draws <- make_mcmc(blavobject@external$mcmcout)
+            drawcols <- grep("^eta", colnames(draws[[1]]))
+
+            if(jagtarget){
+                ## remove phantoms
+                drawcols <- drawcols[1:(nlv * nsamp)]
+            } else {
+                nfound <- length(drawcols)/nsamp
+                drawcols <- drawcols[as.numeric(matrix(1:length(drawcols),
+                                                       nsamp, nfound,
+                                                       byrow=TRUE)[,1:nlv])]
+            }
+            draws <- lapply(draws, function(x) mcmc(x[,drawcols]))
+
+            draws <- mcmc.list(draws)
+
+            if(what %in% c("lvmeans", "fsmeans") | "means" %in% dotdotdot){
+                if(jagtarget){
+                    summ <- blavobject@external$mcmcout$summaries
+                    summname <- "Mean"
+                } else {
+                    summ <- blavobject@external$stansumm
+                    summname <- "mean"
+                }
+                mnrows <- grep("^eta", rownames(summ))
+
+                draws <- matrix(summ[mnrows,summname], nsamp,
+                                length(mnrows)/nsamp, byrow=TRUE)[,1:nlv]
             }
             draws
         } else if(what == "n.chains"){

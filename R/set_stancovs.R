@@ -1,4 +1,4 @@
-set_stancovs <- function(partable, ov.names, ov.names.x, dp) {
+set_stancovs <- function(partable, std.lv) {
   ## Add phantom lvs for covariance parameters
 
   ## first: parameter matrices + indexing
@@ -12,26 +12,26 @@ set_stancovs <- function(partable, ov.names, ov.names.x, dp) {
     partable$group[defpar] <- 1
   }
 
+  ## must be psiUNC if std.lv
+  if(std.lv){
+    partable$mat[partable$mat == "psi"] <- "psiUNC"
+  }
+  
   ## add prior column if it doesn't exist
   if(is.na(match("prior", names(partable)))) partable$prior <- rep("", length(partable$id))
   
   covpars <- which(partable$op == "~~" &
                    partable$lhs != partable$rhs &
-                   !(partable$lhs %in% ov.names.x &
-                     partable$free == 0))
+                   partable$free > 0L)
 
   blkrow <- rep(NA, length(partable$id))
   partable$rhoidx <- rep(NA, length(partable$id))
 
   ## Only do this if covpars exist
   if(length(covpars) > 0){
-    ## add to model matrices
-    nmvcovs <- sum(partable$lhs[covpars] %in% ov.names)
-    nlvcovs <- length(covpars) - nmvcovs
-
     mvcov <- 0
     lvcov <- 0
-    
+
     for(i in 1:length(covpars)){      
       ## Is this constrained equal to a previous parameter?
       eq.const <- FALSE
@@ -53,9 +53,9 @@ set_stancovs <- function(partable, ov.names, ov.names.x, dp) {
 
       partable$lhs[tmprows] <- partable$lhs[covpars[i]]
       partable$rhs[tmprows] <- partable$rhs[covpars[i]]
-      
+
       ## Decide on =~ (ov) vs ~ (lv)
-      if(partable$lhs[covpars[i]] %in% ov.names){
+      if(partable$mat[covpars[i]] == "theta"){
         if(!eq.const){
           mvcov <- mvcov + 1
           covidx <- mvcov
@@ -108,11 +108,13 @@ set_stancovs <- function(partable, ov.names, ov.names.x, dp) {
                                               ",", partable$group[tmprows],
                                               "] * sqrt(", tmpv1,
                                               " * ", tmpv2, ")")
+        partable$start[tmprows] <- partable$start[covpars[i]]
       }
-      partable$free[tmprows] <- partable$free[covpars[i]]
-      partable$free[covpars[i]] <- 0
+      partable$free[tmprows] <- as.integer(partable$free[covpars[i]])
+      partable$free[covpars[i]] <- 0L
       partable$plabel[tmprows] <- paste(".p", tmprows, ".", sep="")
       partable$label[tmprows] <- ""
+      partable$exo[tmprows] <- 0L
     }
 
     ## put covariances last, so that they appear last in
@@ -125,13 +127,12 @@ set_stancovs <- function(partable, ov.names, ov.names.x, dp) {
 
   ## FIXME?
   ## Remove covariances associated with fixed x
-  covpars <- which(partable$op == "~~" &
-                   partable$lhs != partable$rhs &
-                   partable$group == 1 &
-                   partable$lhs %in% ov.names.x &
-                   partable$free == 0)
-
-  if(length(covpars) > 0) partable <- partable[-covpars,]
+  ## covpars <- which(partable$op == "~~" &
+  ##                  partable$lhs != partable$rhs &
+  ##                  partable$group == 1 &
+  ##                  partable$lhs %in% ov.names.x &
+  ##                  partable$free == 0)
+  ## if(length(covpars) > 0) partable <- partable[-covpars,]
 
   partable
 }

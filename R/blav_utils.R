@@ -18,18 +18,18 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
     }
 
     if(conditional){
-      stop("blavaan ERROR: conditional log-likelihoods currently unavailable.")
-      eta <- fill_eta(postsamp, lavpartable, lavsamplestats, lavdata)
+      eta <- fill_eta(postsamp, lavmodel, lavpartable,
+                      lavsamplestats, lavdata)
 
       ## implied meanvec + covmat
-      ## TODO replace with lav_predict_yhat and lavInspect?
+      ## TODO replace with lav_predict_yhat?
       ## (lav_predict_yhat unavailable from lavPredict with custom ETA)
-      mnvec <- NULL
-      covmat <- NULL
       #mnvec <- lavaan:::computeYHAT(lavmodel, lavmodel@GLIST,
       #                              lavsamplestats, ETA = eta)
+      ## instead use lavInspect(,"est")?
       #covmat <- lavaan:::computeTHETA(lavmodel, lavmodel@GLIST)
-
+      covmat <- cov(eta)
+      
       ngroups <- lavsamplestats@ngroups
       implied <- list(cov = covmat, mean = mnvec,
                       slopes = vector("list", ngroups),
@@ -65,11 +65,41 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
             tmpll <- try(dmnorm(lavdata@X[[g]], mnvec, cmat, log=TRUE))
             if(inherits(tmpll, "try-error")) tmpll <- NA
 
+            ## subtract logl.X
+            x.idx <- lavsamplestats@x.idx[[g]]
+            if(!is.null(x.idx) && length(x.idx) > 0L){
+                Mu.X <- lavsamplestats@mean.x[[g]]
+                Sigma.X <- lavsamplestats@cov.x[[g]]
+                if(is.null(Mu.X)){
+                    Mu.X <- mnvec[x.idx]
+                }
+                if(is.null(Sigma.X)){
+                    Sigma.X <- cmat[x.idx, x.idx, drop=FALSE]
+                }
+                tmpll.x <- try(dmnorm(lavdata@X[[g]][,x.idx], Mu.X, Sigma.X, log=TRUE))
+                if(inherits(tmpll.x, "try-error")) tmpll.x <- NA
+                tmpll <- tmpll - tmpll.x
+            }
+            
             if(!conditional){
                 sampmn <- apply(lavdata@X[[g]], 2, mean, na.rm=TRUE)
                 sampcov <- ((lavdata@nobs[[g]]-1)/(lavdata@nobs[[g]]))*cov(lavdata@X[[g]])
 
                 basell <- dmnorm(lavdata@X[[g]], sampmn, sampcov, log=TRUE)
+
+                if(!is.null(x.idx) && length(x.idx) > 0L){
+                    Mu.X <- lavsamplestats@mean.x[[g]]
+                    Sigma.X <- lavsamplestats@cov.x[[g]]
+                    if(is.null(Mu.X)){
+                        Mu.X <- sampmn[x.idx]
+                    }
+                    if(is.null(Sigma.X)){
+                        Sigma.X <- sampcov[x.idx, x.idx, drop=FALSE]
+                    }
+                    tmpll.x <- try(dmnorm(lavdata@X[[g]][,x.idx], Mu.X, Sigma.X, log=TRUE))
+                    if(inherits(tmpll.x, "try-error")) tmpll.x <- NA
+                    basell <- basell - tmpll.x
+                }
             }
 
             if(casewise){
@@ -141,13 +171,12 @@ samp_lls <- function(lavjags        = NULL,
                      lavoptions     = NULL, 
                      lavcache       = NULL,
                      lavdata        = NULL,
+                     lavmcmc        = NULL,
                      thin           = 5,
                      conditional    = FALSE){
     itnums <- sampnums(lavjags, thin = thin)
     nsamps <- length(itnums)
-
-    lavmcmc <- make_mcmc(lavjags)
-    
+  
     nchain <- length(lavmcmc)
     llmat <- array(NA, c(nsamps, nchain, 2)) ## logl + baseline logl
 
@@ -175,28 +204,33 @@ case_lls <- function(lavjags        = NULL,
                      lavoptions     = NULL, 
                      lavcache       = NULL,
                      lavdata        = NULL,
+                     lavmcmc        = NULL,
+                     conditional    = FALSE,
                      thin           = 5){
 
+    ## mcmc draws always in list
     itnums <- sampnums(lavjags, thin=5)
     nsamps <- length(itnums)
-
-    ## mcmc draws always in list
-    lavmcmc <- make_mcmc(lavjags)
   
     nchain <- length(lavmcmc)
 
+    ntot <- sum(unlist(lavdata@nobs))
     llmat <- matrix(NA, nchain*nsamps, sum(unlist(lavdata@nobs)))
 
     for(i in 1:nsamps){
         for(j in 1:nchain){
-            llmat[(i-1)*nchain + j,] <- get_ll(lavmcmc[[j]][itnums[i],],
-                                               lavmodel,
-                                               lavpartable, 
-                                               lavsamplestats, 
-                                               lavoptions, 
-                                               lavcache,
-                                               lavdata,
-                                               casewise = TRUE)
+            clls <- get_ll(lavmcmc[[j]][itnums[i],],
+                           lavmodel,
+                           lavpartable, 
+                           lavsamplestats, 
+                           lavoptions, 
+                           lavcache,
+                           lavdata,
+                           casewise = TRUE,
+                           conditional = conditional)
+
+            if(length(clls) > ntot) clls <- clls[!is.na(clls)]
+            llmat[(i-1)*nchain + j,] <- clls
         }
     }
 
@@ -212,7 +246,7 @@ fill_params <- function(postsamp      = NULL,
                                        x = postsamp[lavpartable$jagpnum[!is.na(lavpartable$jagpnum)]])
   } else {
     filled <- lav_model_set_parameters(lavmodel,
-                                       x = postsamp[lavpartable$stanpnum[lavpartable$free > 0][order(lavpartable$free[lavpartable$free > 0])]])
+                                       x = postsamp[lavpartable$stansumnum[lavpartable$free > 0][order(lavpartable$free[lavpartable$free > 0])]])
   }
   filled
 }
@@ -232,7 +266,7 @@ rearr_params <- function(mcmc         = NULL,
     if("jagpnum" %in% names(lavpartable)){
         fullmat[,lavpartable$jagpnum[lavpartable$free > 0]]
     } else {
-        fullmat[,lavpartable$stanpnum[lavpartable$free > 0][order(lavpartable$free[lavpartable$free > 0])]]
+        fullmat[,lavpartable$stansumnum[lavpartable$free > 0][order(lavpartable$free[lavpartable$free > 0])]]
     }
 }   
 
@@ -243,8 +277,8 @@ sampnums <- function(lavmcmc, thin){
     } else {
         niter <- dim(as.array(lavmcmc))[1]
     }
-    nsamps <- min(1000,floor(niter/thin))
-    psamp <- seq(1, niter, length.out=nsamps)
+    #nsamps <- min(1000,floor(niter/thin))
+    psamp <- seq(1, niter, thin)
 
     psamp
 }
@@ -289,7 +323,14 @@ eval_prior <- function(pricom, thetstar, pxname){
             trunend <- length(pricom)
         }
     } else {
-        dpars <- as.numeric(pricom[2:length(pricom)])
+        dpars <- suppressWarnings(as.numeric(pricom[2:length(pricom)]))
+        ## handle text like sqrt, ^, etc
+        if(any(is.na(dpars))){
+            nas <- which(is.na(dpars))
+            for(i in nas){
+                dpars[i] <- eval(parse(text=pricom[i+1]))
+            }
+        }
     }
 
     ## thetstar modifications:
@@ -326,6 +367,37 @@ eval_prior <- function(pricom, thetstar, pxname){
     dens <- do.call(pricom[1], c(thetstar, as.list(dpars), log=TRUE)) - log(support.prob)
 
     dens
+}
+
+dist2r <- function(priors, target){
+    ## convert jags/stan priors to R distribution
+    ## return lists where distribution + parameters (+ truncation)
+    ## appear as character vectors.
+
+    ## explicitly change sqrt() to ^.5, because it may often be
+    ## used to express sd's
+    gsub("sqrt\\((.*)\\)\\).*", "\\1^.5\\)", priors)
+  
+    if(target == "jags"){
+        out <- jagsdist2r(priors)
+    } else if(target == "stan"){
+        ## TODO need exported, or reverse rstan::lookup()
+        #rosetta <- rstan:::rosetta
+        ## alternate way to possibly get around export
+        rloc <- paste0(system.file("R", package="rstan"), "/sysdata")
+        lazyLoad(rloc)
+        rosetta <- rosetta
+        prisplit <- strsplit(priors, "[, ()]+")
+        pridist <- sapply(prisplit, function(x) x[1])
+        newdist <- rosetta$RFunction[match(pridist, rosetta$StanFunction)]
+        for(i in 1:length(newdist)){
+            prisplit[[i]][1] <- newdist[i]
+        }
+
+        out <- prisplit
+    }
+
+    out
 }
 
 ## add extra monitors from jagextra to parameter table as defined parameters
@@ -385,19 +457,25 @@ namecheck <- function(ov.names){
 
 ## compute undirected K-L divergence across all draws
 ## (each draw paired with one from another chain)
-samp_kls <- function(draws          = NULL, # all chains in 1 matrix
+samp_kls <- function(lavjags        = NULL,
                      lavmodel       = NULL, 
                      lavpartable    = NULL, 
                      lavsamplestats = NULL, 
                      lavoptions     = NULL, 
                      lavcache       = NULL,
                      lavdata        = NULL,
+                     lavmcmc        = NULL,
+                     thin           = 5,
                      conditional    = FALSE){
 
     ## need to implement plummer's approach of generating y_rep
     ##mis <- FALSE
     ##if(any(is.na(unlist(lavdata@X)))) mis <- TRUE
     ##if(mis | lavoptions$categorical) stop("blavaan ERROR: K-L divergence not implemented for missing data or ordinal variables.")
+
+    itnums <- sampnums(lavjags, thin = thin)
+    lavmcmc <- lapply(lavmcmc, function(x) x[itnums,])
+    draws <- do.call("rbind", lavmcmc)
   
     ndraws <- nrow(draws)
     halfdraws <- floor(ndraws/2)
@@ -410,24 +488,23 @@ samp_kls <- function(draws          = NULL, # all chains in 1 matrix
                                  lavpartable)
 
         if(conditional){
-            stop("blavaan ERROR: conditional kl-distance unavailable.")
-            eta0 <- fill_eta(draws[i,], lavpartable, lavsamplestats,
-                             lavdata)
-            eta1 <- fill_eta(draws[(halfdraws + i),], lavpartable,
+            eta0 <- fill_eta(draws[i,], lavmodel, lavpartable,
                              lavsamplestats, lavdata)
+            eta1 <- fill_eta(draws[(halfdraws + i),], lavmodel,
+                             lavpartable, lavsamplestats, lavdata)
 
-            ## mnvec0 <- lavaan:::computeYHAT(lavmodel0,
-            ##                                lavmodel0@GLIST,
-            ##                                lavsamplestats,
-            ##                                ETA = eta0)
-            ## cmat0 <- lavaan:::computeTHETA(lavmodel0,
-            ##                                lavmodel0@GLIST)
-            ## mnvec1 <- lavaan:::computeYHAT(lavmodel1,
-            ##                                lavmodel1@GLIST,
-            ##                                lavsamplestats,
-            ##                                ETA = eta1)
-            ## cmat1 <- lavaan:::computeTHETA(lavmodel1,
-            ##                                lavmodel1@GLIST)
+            #mnvec0 <- lavaan:::computeYHAT(lavmodel0,
+            #                               lavmodel0@GLIST,
+            #                               lavsamplestats,
+            #                               ETA = eta0)
+            #cmat0 <- lavaan:::computeTHETA(lavmodel0,
+            #                               lavmodel0@GLIST)
+            #mnvec1 <- lavaan:::computeYHAT(lavmodel1,
+            #                               lavmodel1@GLIST,
+            #                               lavsamplestats,
+            #                               ETA = eta1)
+            #cmat1 <- lavaan:::computeTHETA(lavmodel1,
+            #                               lavmodel1@GLIST)
             implied0 <- list(cov = cmat0, mean = mnvec0,
                              slopes = vector("list", ngroups),
                              th = vector("list", ngroups),
@@ -474,16 +551,31 @@ samp_kls <- function(draws          = NULL, # all chains in 1 matrix
 }        
 
 ## fill in eta matrices (1 per group, in list)
-fill_eta <- function(postsamp, lavpartable, lavsamplestats, lavdata){
-    ## FIXME: deal with phantom lvs
-    nlv <- length(lav_partable_attributes(lavpartable)$vnames$lv[[1]])
+fill_eta <- function(postsamp, lavmodel, lavpartable, lavsamplestats, lavdata){
+    nlv <- length(lavmodel@GLIST$alpha)
     etapars <- grepl("^eta", names(postsamp))
-    etamat <- matrix(postsamp[etapars], lavsamplestats@ntotal, nlv)
+    cnums <- strsplit(names(postsamp)[etapars], "\\[|,|\\]")
+    cnums <- sapply(cnums, function(x) as.numeric(x[3]))
+    etavec <- postsamp[etapars][order(cnums)]
+
+    ## need to worry about (1) excluding phantom lvs
+    ## and (2) including dummy lvs
+    foundlvs <- sum(etapars)/lavsamplestats@ntotal
+    etamat <- matrix(etavec, lavsamplestats@ntotal, foundlvs)
+    if(foundlvs < nlv) etamat <- cbind(etamat, matrix(0, lavsamplestats@ntotal, (nlv - foundlvs)))
+
     ngroups <- lavsamplestats@ngroups
 
     eta <- vector("list", ngroups)
-    for(g in 1:ngroups){
-        eta[[g]] <- etamat[lavdata@case.idx[[g]], , drop = FALSE]
+      for(g in 1:ngroups){        
+        eta[[g]] <- etamat[lavdata@case.idx[[g]], 1:nlv, drop = FALSE]
+
+        ## fill in eta with dummys, if needed
+        dummyov <- c(lavmodel@ov.x.dummy.ov.idx[[g]], lavmodel@ov.y.dummy.ov.idx[[g]])
+        dummylv <- c(lavmodel@ov.x.dummy.lv.idx[[g]], lavmodel@ov.y.dummy.lv.idx[[g]])
+        if(length(dummyov) > 0){
+          eta[[g]][, dummylv] <- lavdata@X[[g]][, dummyov]
+        }
     }
 
     eta
@@ -505,13 +597,54 @@ kl_und <- function(mn0, mn1, cov0, invcov0, cov1, invcov1,
   (1/2) * (kl01 + kl10)
 }
 
+## now defunct:
+## get various fit metrics from a fitted model for each
+## posterior draw
+samp_idx <- function(lavjags        = NULL,
+                     lavmodel       = NULL, 
+                     lavpartable    = NULL, 
+                     lavsamplestats = NULL, 
+                     lavoptions     = NULL, 
+                     lavcache       = NULL,
+                     lavdata        = NULL,
+                     lavmcmc        = NULL,
+                     thin           = 5,
+                     measure        = "logl"){
+    itnums <- sampnums(lavjags, thin = thin)
+    nsamps <- length(itnums)
+    lavmcmc <- make_mcmc(lavjags)
+
+    nchain <- length(lavmcmc)
+    idxmat <- matrix(NA, nsamps, nchain)
+
+    for(i in 1:nsamps){
+        for(j in 1:nchain){
+            idxmat[i,j] <- get_ll(lavmcmc[[j]][itnums[i],],
+                                  lavmodel,
+                                  lavpartable, 
+                                  lavsamplestats, 
+                                  lavoptions, 
+                                  lavcache,
+                                  lavdata,
+                                  measure)[1]
+        }
+    }
+
+    idxmat
+}
+
 make_mcmc <- function(mcmcout){
   ## extract mcmc draws from jags/stan object
   if(class(mcmcout) == "runjags"){
     lavmcmc <- mcmcout$mcmc
   } else {
+    ## for stan: as.array() gives parameters in a different order from summary()
+    ##           so reorder
+    tmpsumm <- rstan::summary(mcmcout)
     lavmcmc <- as.array(mcmcout)
     lavmcmc <- lapply(seq(dim(lavmcmc)[2]), function(x) lavmcmc[,x,])
+    reord <- match(rownames(tmpsumm$summary), colnames(lavmcmc[[1]]))
+    lavmcmc <- lapply(lavmcmc, function(x) x[,reord])
   }
   lavmcmc
 }

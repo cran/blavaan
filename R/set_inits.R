@@ -123,21 +123,31 @@ set_inits_stan <- function(partable, nfree, n.chains, inits){
 
   partable$freeparnums[is.na(partable$freeparnums)] <- 0
   freepartable <- partable[partable$freeparnums > 0,]
+  if("rhoidx" %in% names(freepartable)){
+      rhorows <- which(!is.na(freepartable$rhoidx) &
+                       freepartable$free > 0 &
+                       freepartable$mat == "rho")
+      if(length(rhorows) > 0){
+          freepartable$freeparnums[rhorows] <- 1:length(rhorows)
+      }
+      lvrhorows <- which(!is.na(freepartable$rhoidx) &
+                         freepartable$free > 0 &
+                         freepartable$mat == "lvrho")
+      if(length(rhorows) > 0){
+          freepartable$freeparnums[lvrhorows] <- 1:length(lvrhorows)
+      }
+  }
+
   ## TODO need exported, or reverse rstan::lookup()
-  rosetta <- NULL
-  #rosetta <- rstan:::rosetta
+  ## rosetta <- rstan:::rosetta
   ## alternate way to possibly get around export
-  ##rloc <- paste0(system.file("R", package="rstan"), "/sysdata")
-  ##lazyLoad(rloc)
+  rloc <- paste0(system.file("R", package="rstan"), "/sysdata")
+  lazyLoad(rloc)
+  rosetta <- rosetta
 
+  pricom <- dist2r(freepartable$prior, target = "stan")
   for(i in 1:nrow(freepartable)){
-    tmppri <- freepartable$prior[i]
-
-    pricom <- unlist(strsplit(tmppri, "[, ()]+"))
-
     if(inits == "prior"){
-      pricom[1] <- rosetta$RFunction[rosetta$StanFunction == pricom[1]]
-
       ## Try to set sensible starting values, using some of the
       ## prior information
       if(grepl("dnorm", pricom[1])){
