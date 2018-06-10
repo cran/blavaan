@@ -9,6 +9,7 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
                    lavoptions     = NULL, 
                    lavcache       = NULL,
                    lavdata        = NULL,
+                   lavobject      = NULL, # just to use lavPredict()
                    measure        = "logl",
                    casewise       = FALSE,
                    conditional    = FALSE){
@@ -22,14 +23,20 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
                       lavsamplestats, lavdata)
 
       ## implied meanvec + covmat
-      ## TODO replace with lav_predict_yhat?
-      ## (lav_predict_yhat unavailable from lavPredict with custom ETA)
       #mnvec <- lavaan:::computeYHAT(lavmodel, lavmodel@GLIST,
       #                              lavsamplestats, ETA = eta)
-      ## instead use lavInspect(,"est")?
+      lavobject@Model <- lavmodel
+      mnvec <- lavPredict(lavobject, type="ov", ETA = eta)
+      if(any(class(mnvec) == "matrix")) mnvec <- list(mnvec)
+
       #covmat <- lavaan:::computeTHETA(lavmodel, lavmodel@GLIST)
-      covmat <- cov(eta)
-      
+      covmat <- lavInspect(lavobject, 'theta')
+      if(any(class(covmat) == "matrix")) covmat <- list(covmat)
+      ## to avoid warnings from mnormt::pd.solve
+      covmat <- lapply(covmat, function(x){
+        class(x) <- "matrix"
+        x})
+       
       ngroups <- lavsamplestats@ngroups
       implied <- list(cov = covmat, mean = mnvec,
                       slopes = vector("list", ngroups),
@@ -137,7 +144,10 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
         if("control" %in% slotNames(lavmodel)){
             lavmodel@control <- list(optim.method="none")
         }
-
+        ## FIXME: not sure when 'free' becomes numeric,
+        ## but S4 doesn't like it in the lavaan call
+        ## (only sometimes; related to extra monitors?)
+        lavpartable$free <- as.integer(lavpartable$free)
         fit.samp <- try(lavaan(slotParTable = lavpartable,
                                slotModel = lavmodel,
                                slotOptions = lavoptions,
@@ -172,7 +182,8 @@ samp_lls <- function(lavjags        = NULL,
                      lavcache       = NULL,
                      lavdata        = NULL,
                      lavmcmc        = NULL,
-                     thin           = 5,
+                     lavobject      = NULL,
+                     thin           = 1,
                      conditional    = FALSE){
     itnums <- sampnums(lavjags, thin = thin)
     nsamps <- length(itnums)
@@ -189,6 +200,7 @@ samp_lls <- function(lavjags        = NULL,
                                      lavoptions, 
                                      lavcache,
                                      lavdata,
+                                     lavobject,
                                      conditional = conditional)
         }
     }
@@ -205,13 +217,13 @@ case_lls <- function(lavjags        = NULL,
                      lavcache       = NULL,
                      lavdata        = NULL,
                      lavmcmc        = NULL,
+                     lavobject      = NULL,
                      conditional    = FALSE,
-                     thin           = 5){
+                     thin           = 1){
 
     ## mcmc draws always in list
-    itnums <- sampnums(lavjags, thin=5)
+    itnums <- sampnums(lavjags, thin=thin)
     nsamps <- length(itnums)
-  
     nchain <- length(lavmcmc)
 
     ntot <- sum(unlist(lavdata@nobs))
@@ -226,6 +238,7 @@ case_lls <- function(lavjags        = NULL,
                            lavoptions, 
                            lavcache,
                            lavdata,
+                           lavobject,
                            casewise = TRUE,
                            conditional = conditional)
 
@@ -420,12 +433,12 @@ add_monitors <- function(lavpartable, lavjags, jagextra){
     lavpartable$lhs <- c(lavpartable$lhs, xnms)
     lavpartable$op <- c(lavpartable$op, rep(":=", sum(nvars)))
     lavpartable$rhs <- c(lavpartable$rhs, rep("", sum(nvars)))
-    lavpartable$user <- c(lavpartable$user, rep(2, sum(nvars)))
-    lavpartable$group <- c(lavpartable$group, rep(1, sum(nvars)))
-    lavpartable$block <- c(lavpartable$block, rep(1, sum(nvars)))
-    lavpartable$free <- c(lavpartable$free, rep(0, sum(nvars)))
+    lavpartable$user <- c(lavpartable$user, rep(2L, sum(nvars)))
+    lavpartable$group <- c(lavpartable$group, rep(1L, sum(nvars)))
+    lavpartable$block <- c(lavpartable$block, rep(1L, sum(nvars)))
+    lavpartable$free <- c(lavpartable$free, rep(0L, sum(nvars)))
     lavpartable$ustart <- c(lavpartable$ustart, rep(NA, sum(nvars)))
-    lavpartable$exo <- c(lavpartable$exo, rep(0, sum(nvars)))
+    lavpartable$exo <- c(lavpartable$exo, rep(0L, sum(nvars)))
     lavpartable$label <- c(lavpartable$label, rep("", sum(nvars)))
     lavpartable$plabel <- c(lavpartable$plabel, rep("", sum(nvars)))
     lavpartable$start <- c(lavpartable$start, rep(0, sum(nvars)))
@@ -465,7 +478,8 @@ samp_kls <- function(lavjags        = NULL,
                      lavcache       = NULL,
                      lavdata        = NULL,
                      lavmcmc        = NULL,
-                     thin           = 5,
+                     lavobject      = NULL,
+                     thin           = 1,
                      conditional    = FALSE){
 
     ## need to implement plummer's approach of generating y_rep
@@ -493,18 +507,18 @@ samp_kls <- function(lavjags        = NULL,
             eta1 <- fill_eta(draws[(halfdraws + i),], lavmodel,
                              lavpartable, lavsamplestats, lavdata)
 
-            #mnvec0 <- lavaan:::computeYHAT(lavmodel0,
-            #                               lavmodel0@GLIST,
-            #                               lavsamplestats,
-            #                               ETA = eta0)
-            #cmat0 <- lavaan:::computeTHETA(lavmodel0,
-            #                               lavmodel0@GLIST)
-            #mnvec1 <- lavaan:::computeYHAT(lavmodel1,
-            #                               lavmodel1@GLIST,
-            #                               lavsamplestats,
-            #                               ETA = eta1)
-            #cmat1 <- lavaan:::computeTHETA(lavmodel1,
-            #                               lavmodel1@GLIST)
+            lavobject@Model <- lavmodel0
+            mnvec0 <- lavPredict(lavobject, type="ov", ETA=eta0)
+            if(any(class(mnvec0) == "matrix")) mnvec0 <- list(mnvec0)
+            cmat0 <- lavInspect(lavobject, 'theta')
+            if(any(class(cmat0) == "matrix")) cmat0 <- list(cmat0)
+
+            lavobject@Model <- lavmodel1
+            mnvec1 <- lavPredict(lavobject, type="ov", ETA=eta1)
+            if(any(class(mnvec1) == "matrix")) mnvec1 <- list(mnvec1)
+            cmat1 <- lavInspect(lavobject, 'theta')
+            if(any(class(cmat1) == "matrix")) cmat1 <- list(cmat1)
+
             implied0 <- list(cov = cmat0, mean = mnvec0,
                              slopes = vector("list", ngroups),
                              th = vector("list", ngroups),
@@ -608,7 +622,7 @@ samp_idx <- function(lavjags        = NULL,
                      lavcache       = NULL,
                      lavdata        = NULL,
                      lavmcmc        = NULL,
-                     thin           = 5,
+                     thin           = 1,
                      measure        = "logl"){
     itnums <- sampnums(lavjags, thin = thin)
     nsamps <- length(itnums)
@@ -647,4 +661,13 @@ make_mcmc <- function(mcmcout){
     lavmcmc <- lapply(lavmcmc, function(x) x[,reord])
   }
   lavmcmc
+}
+
+## check that a package is installed via requireNamspace
+pkgcheck <- function(x){
+  suppressMessages(requireNamespace(x, quietly = TRUE))
+}
+
+pkgload <- function(x){
+  try(suppressMessages(attachNamespace(x)), silent = TRUE)
 }

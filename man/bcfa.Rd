@@ -56,8 +56,8 @@ bcfa(..., cp = "srs",
   respectively. Otherwise, parameters
   are sampled as specified by the user (or by the \code{run.jags}
   defaults).}
-\item{target}{Desired MCMC package (currently, only \code{jags} is
-  available).}
+\item{target}{Desired MCMC package (\code{"jags"} is default, but
+  \code{"stan"} also available).}
 \item{save.lvs}{Should sample latent variables (factor scores) be saved? Logical; defaults to FALSE}
 \item{jags.ic}{Should DIC be computed the JAGS way, in addition to the BUGS way? Logical; defaults to FALSE}
 \item{seed}{A vector of length \code{n.chains} containing random
@@ -86,8 +86,9 @@ Yves Rosseel (2012). lavaan: An R Package for Structural Equation
 Modeling. Journal of Statistical Software, 48(2), 1-36. URL
 http://www.jstatsoft.org/v48/i02/.
 
-Edgar C. Merkle & Yves Rosseel (2015). blavaan: Bayesian Structural
-Equation Models via Parameter Expansion.
+Edgar C. Merkle & Yves Rosseel (2018). blavaan: Bayesian Structural
+Equation Models via Parameter Expansion. Journal of Statistical
+Software, 85(4), 1-30. URL http://www.jstatsoft.org/v85/i04/.
 }
 \seealso{
 \code{\link{blavaan}}

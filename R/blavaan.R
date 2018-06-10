@@ -44,16 +44,40 @@ blavaan <- function(...,  # default lavaan arguments
         }
     }
 
-    # ensure stan is here
+    # ordinal/multilevel functionality not available
+    if("ordered" %in% dotNames) stop("blavaan ERROR: models with ordered variables are not yet available.")
+    if("cluster" %in% dotNames) stop("blavaan ERROR: two-level models are not yet available.")
+  
+    # ensure rstan/runjags are here. if target is not installed but
+    # the other is, then use the other instead.
     if(target == "stan"){
       if(convergence == "auto"){
         stop("blavaan ERROR: auto convergence is unavailable for stan.")
       }
-      # could also use requireNamespace + attachNamespace
-      if(!(suppressMessages(requireNamespace("rstan", quietly = TRUE)))){
-        stop("blavaan ERROR: rstan package is not installed.")
+
+      if(!pkgcheck("rstan")){
+        if(pkgcheck("runjags")){
+          cat("blavaan NOTE: rstan not installed; using runjags instead.\n")
+          target <- "jags"
+          pkgload("runjags")
+        } else {
+          stop("blavaan ERROR: rstan package is not installed.")
+        }
       } else {
-        try(suppressMessages(attachNamespace("rstan")), silent = TRUE)
+        pkgload("rstan")
+      }
+    } else if(target == "jags"){
+      if(!pkgcheck("runjags")){
+        ## go to rstan if they have it
+        if(pkgcheck("rstan")){
+          cat("blavaan NOTE: runjags not installed; using rstan instead.\n")
+          target <- "stan"
+          pkgload("rstan")
+        } else {
+          stop("blavaan ERROR: runjags package is not installed.")
+        }
+      } else {
+        pkgload("runjags")
       }
     }
 
@@ -98,10 +122,12 @@ blavaan <- function(...,  # default lavaan arguments
       cat("blavaan NOTE: fa priors are not available with stan. srs priors will be used. \n")
     }
 
-    # 'jag' arguments are now 'mcmc'
-    jagargs <- c("jagfile", "jagextra", "jagcontrol")
+    # 'jag' arguments are now mcmcfile, mcmcextra, bcontrol
+    jagargs <- c("jagfile", "jagextra")
+    barg <- "jagcontrol"
     jaglocs <- match(jagargs, dotNames, nomatch = 0)
-    if(any(jaglocs > 0)){
+    blocs <- match(barg, dotNames, nomatch = 0)
+    if(any(jaglocs > 0)){      
       cat(paste0("blavaan NOTE: the following argument(s) are deprecated: ",
                  paste(jagargs[jaglocs > 0], collapse=" "),
                  ".\n        the argument(s) now start with 'mcmc' instead of 'jag'. \n"))
@@ -110,6 +136,16 @@ blavaan <- function(...,  # default lavaan arguments
         assign(newargs[i], dotdotdot[[jaglocs[jaglocs > 0][i]]])
       }
       dotdotdot <- dotdotdot[-jaglocs]; dotNames <- dotNames[-jaglocs]
+    }
+    if(any(blocs > 0)){      
+      cat(paste0("blavaan NOTE: the following argument is deprecated: ",
+                 paste(barg[blocs > 0], collapse=" "),
+                 ".\n        the argument now starts with 'b' instead of 'jag'. \n"))
+      newargs <- gsub("jag", "b", barg[blocs > 0])
+      for(i in 1:length(newargs)){
+        assign(newargs[i], dotdotdot[[blocs[blocs > 0][i]]])
+      }
+      dotdotdot <- dotdotdot[-blocs]; dotNames <- dotNames[-blocs]
     }
   
     # which arguments do we override?
@@ -341,7 +377,7 @@ blavaan <- function(...,  # default lavaan arguments
     } else {
         # if missing data, posterior predictives are way slow
         if(any(is.na(unlist(LAV@Data@X)))) {
-            cat("blavaan NOTE: Posterior predictives with missing data are currently very slow.\nConsider setting test=\"none\".\n\n")
+            cat("blavaan NOTE: Posterior predictives with missing data are currently very slow.\n\tConsider setting test=\"none\".\n\n")
         }
     }
     if(!jag.do.fit){
@@ -438,8 +474,8 @@ blavaan <- function(...,  # default lavaan arguments
 
             if(target == "jags"){
                 ## obtain posterior modes
-                if(suppressMessages(requireNamespace("modeest", quietly = TRUE))) runjags.options(mode.continuous = TRUE)
-                runjags.options(force.summary = TRUE)
+                if(suppressMessages(requireNamespace("modeest", quietly = TRUE))) runjags::runjags.options(mode.continuous = TRUE)
+                runjags::runjags.options(force.summary = TRUE)
             }
 
             if(jag.do.fit){
@@ -539,10 +575,18 @@ blavaan <- function(...,  # default lavaan arguments
                 } else {
                     fullpmeans <- rstan::summary(res)$summary[,"mean"]
                 }
-                cfx <- NA #get_ll(fullpmeans, lavmodel = lavmodel, lavpartable = lavpartable,
-                              #lavsamplestats = lavsamplestats, lavoptions = lavoptions,
-                              #lavcache = lavcache, lavdata = lavdata,
-                              #conditional = TRUE)[1]
+                ## do they have a recent version of lavaan
+                lavvers <- packageVersion('lavaan')
+                recvers <- (lavvers == '0.6-1' | lavvers >= package_version('0.6-1.1189'))
+                if(recvers){
+                  cfx <- get_ll(fullpmeans, lavmodel = lavmodel, lavpartable = lavpartable,
+                                lavsamplestats = lavsamplestats, lavoptions = lavoptions,
+                                lavcache = lavcache, lavdata = lavdata,
+                                lavobject = LAV, conditional = TRUE)[1]
+                } else {
+                  cat("blavaan NOTE: Conditional ICs require a newer version of lavaan;\n   see http://lavaan.ugent.be/development.html\n")
+                  cfx <- NA
+                }
             }
         } else {
             attr(x, "fx") <- as.numeric(NA)
@@ -581,13 +625,19 @@ blavaan <- function(...,  # default lavaan arguments
       }
       
       if(save.lvs) {
-        csamplls <- NA #samp_lls(res, lavmodel, lavpartable,
-                         #    lavsamplestats, lavoptions, lavcache,
-                         #    lavdata, lavmcmc, conditional = TRUE)
-        if(jags.ic) {
-          csampkls <- NA #samp_kls(res, lavmodel, lavpartable,
-                           #   lavsamplestats, lavoptions, lavcache,
-                           #   lavdata, lavmcmc, conditional = TRUE)
+        if(recvers){
+          csamplls <- samp_lls(res, lavmodel, lavpartable,
+                               lavsamplestats, lavoptions, lavcache,
+                               lavdata, lavmcmc, lavobject = LAV,
+                               conditional = TRUE)
+        } else {
+          csamplls <- NA
+        }
+        if(jags.ic & recvers) {
+          csampkls <- samp_kls(res, lavmodel, lavpartable,
+                               lavsamplestats, lavoptions, lavcache,
+                               lavdata, lavmcmc, lavobject = LAV,
+                               conditional = TRUE)
         } else {
           csampkls <- NA
         }
@@ -670,7 +720,7 @@ blavaan <- function(...,  # default lavaan arguments
 
         if(length(reservemons) < length(mcmcextra$monitor)){
             jecopy <- mcmcextra
-            jecopy$monitor <- jecopy$monitor[-reservemons]
+            if(length(reservemons) > 0) jecopy$monitor <- jecopy$monitor[-reservemons]
             lavpartable <- add_monitors(lavpartable, lavjags, jecopy)
         }
     }

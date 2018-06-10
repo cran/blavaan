@@ -1,13 +1,13 @@
 importFrom("methods", 
-           "is", "new", "slot", "slotNames", "callNextMethod")
+           "is", "new", "slot", "slotNames", "callNextMethod", "getMethod")
 
 importFrom("utils", 
            # "sessionInfo",
-           "packageDescription", "str", "write.table")
+           "packageDescription", "str", "write.table", "packageVersion")
 
 importFrom("stats", 
-           "approx", "density", "dnorm", "pnorm", "rgamma", "rnorm",
-           "runif", "quantile", "rWishart", "cov", "cor",
+           "approx", "density", "median", "dnorm", "pnorm", "rgamma", "rnorm",
+           "runif", "sd", "quantile", "rWishart", "cov", "cor",
            "coef", "logLik",
            "residuals", "resid",
            "fitted.values", "fitted",
@@ -29,21 +29,20 @@ importFrom("lavaan",
            "lav_model_get_parameters", "lav_model_implied", 
            "lav_model_set_parameters", "lav_model_vcov_se", 
            "lav_partable_attributes",
-           "modificationIndices", "parTable", "parameterEstimates")
-
-importFrom("runjags",
-           "run.jags", "runjags.options")
+           "modificationIndices", "parTable", "parameterEstimates",
+           "lavPredict")
 
 importFrom("MCMCpack",
            "dwish")
 
 importFrom("coda",
            "mcmc.list",
-           "mcmc",
+           "mcmc", "as.mcmc",
            "HPDinterval")
 
 importFrom("mnormt",
-           "dmnorm")
+           "dmnorm",
+           "rmnorm")
 
 importFrom("nonnest2",
            "llcont")
@@ -52,6 +51,6 @@ importFrom("loo",
            "loo", "waic", "compare")
 
 export("blavaan", "bcfa", "bsem", "bgrowth", "dpriors", "BF", "blavCompare",
-       "blavTech", "blavInspect")
+       "blavTech", "blavInspect", "blavFitIndices")
 
 S3method(plot, blavaan)

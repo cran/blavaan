@@ -293,9 +293,9 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
                     model@Model@ov.x.dummy.lv.idx[[1]])
   dumov <- 0L
   if(length(ov.dummy.idx) > 0) dumov <- 1L
-  
+
   ## FIXME? see .internal_get_ALPHA from lav_representation_lisrel.R
-  ## for alternative (better) way to handle this than eqs.x  
+  ## for alternative (better) way to handle this than eqs.x
   if(nov.x > 0 | length(vnames$eqs.x[[1]]) > 0){
     xnames <- c(ov.names.x, vnames$eqs.x[[1]])
     exoind <- which(ov.names[xind] %in% xnames)
@@ -319,15 +319,18 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
     exoind <- rep(0,length(xind))
     lvindall <- regind
     etaind <- exoind
-    if(nlv > 0){
-      if(length(lv0.idx) < nlv & length(lv0.idx) > 0){
+    if(nlv > 0 & length(lv0.idx) < nlv){
+      if(length(lv0.idx) > 0){
         nlvno0 <- nlv - length(lv0.idx)
+        regind <- c((1:nlv)[-lv0.idx], (nlvno0+regind))
         etaind <- (1:nlv)[-lv0.idx]
       } else {
         nlvno0 <- nlv
+        regind <- c(1:nlv, (nlv+regind))
         etaind <- 1:nlv
       }
     }
+    lvindall <- regind
   }
 
   ## missingness of ovs split by whether or not they appear
@@ -535,10 +538,11 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
   ## NB: if meanx is empty, we won't use it. so just
   ## set meanx to smean for stan.
   smean <- do.call("cbind", model@SampleStats@mean)
+  meanx <- smean
   if(length(model@SampleStats@mean.x[[1]]) > 0){
-    meanx <- do.call("cbind", model@SampleStats@mean.x)
-  } else {
-    meanx <- smean
+    if(!is.na(model@SampleStats@mean.x[[1]][1])){
+      meanx <- do.call("cbind", model@SampleStats@mean.x)
+    }
   }
   datablk <- paste0(datablk, t1, "real sampmean[", nrow(smean), ",",
                     ncol(smean), "];\n", t1,
@@ -555,7 +559,7 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
 
   if(!is.null(lavdata) | class(model)[1]=="lavaan"){
     if(class(model)[1] == "lavaan") lavdata <- model@Data
-    ntot <- sum(unlist(lavdata@norig))
+    ntot <- length(unlist(lavdata@case.idx)) #sum(unlist(lavdata@norig)) #bs))
 
     ## exogenous x's go in their own matrix
     y <- matrix(NA, ntot, ny) #lapply(1:tmpnmvs, function(x) rep(NA,ntot))
@@ -586,6 +590,14 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
     }
 
     g <- rep(NA, ntot)
+
+    ## case.idx is only for used cases
+    tmpidx <- unlist(lavdata@case.idx)
+    newidx <- match(1:max(tmpidx), tmpidx)
+    newidx <- newidx[!is.na(newidx)]
+    grpidx <- rep(1:length(lavdata@case.idx), sapply(lavdata@case.idx, length))
+    lavdata@case.idx <- split(newidx, grpidx)
+    names(lavdata@case.idx) <- NULL
 
     for(k in 1:ngroups){
       if(ny > 0){
@@ -667,19 +679,19 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
     nas <- which(yna | xna)
 
     if(length(nas) > 0){
-      if(ny > 0) y <- y[-nas,]
-      if(n.psi.ov > 0) x <- x[-nas,]
+      if(ny > 0) y <- y[-nas, , drop=FALSE]
+      if(n.psi.ov > 0) x <- x[-nas, , drop=FALSE]
       g <- g[-nas]
       if(ny > 0){
-        obsvar <- obsvar[-nas,]
-        misvar <- misvar[-nas,]
+        obsvar <- obsvar[-nas, , drop=FALSE]
+        misvar <- misvar[-nas, , drop=FALSE]
         nseen <- nseen[-nas]
         nmis <- nmis[-nas]
       }
       if(n.psi.ov > 0){
         #obsvarx <- obsvarx[-nas,]
-        misvarx <- misvarx[-nas,]
-        obsexo <- matrix(obsexo[-nas,]) # converts to numeric
+        misvarx <- misvarx[-nas, , drop=FALSE]
+        obsexo <- obsexo[-nas, , drop=FALSE]
         #nseenx <- nseenx[-nas]
         obspatt <- obspatt[-nas]
         nmisx <- nmisx[-nas]
@@ -693,6 +705,8 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
     if(missflag){
       if(ny > 0){
         for(i in 1:nrow(y)){
+          ## TODO do this at first definition of obsvar?
+          obsvar[i,1:nseen[i]] <- match(obsvar[i,1:nseen[i]], yind)
           y[i,1:nseen[i]] <- y[i,obsvar[i,1:nseen[i]]]
           if(ny - nseen[i] > 0){
             y[i,(nseen[i]+1):ny] <- -999
@@ -702,8 +716,17 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
     }
     if(miss.psi){
       if(n.psi.ov > 0){
+        for(gg in 1:ngroups){
+          for(m in 1:max(obspatt)){
+            if(nseenx[gg,obspatt[m]] > 0){
+              ## TODO do this at first definition of obsvarx?
+              xidx <- match(obsvarx[gg,m,1:nseenx[gg,m]], xind)
+              obsvarx[gg,m,1:nseenx[gg,m]] <- xidx
+            }
+          }
+        }
         for(i in 1:nrow(x)){
-          x[i,1:nseenx[obspatt[i]]] <- x[i,obsvarx[g[i],obspatt[i],1:nseenx[g[i],obspatt[i]]]]
+          x[i,1:nseenx[g[i],obspatt[i]]] <- x[i,obsvarx[g[i],obspatt[i],1:nseenx[g[i],obspatt[i]]]]
           if(n.psi.ov - nseenx[obspatt[i]] > 0){
             x[i,(nseenx[obspatt[i]]+1):n.psi.ov] <- -999
           }
@@ -719,8 +742,8 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
     }
     standata <- c(standata, list(dummyov=array(ov.dummy.idx),
                                  dummylv=array(lv.dummy.idx),
-                                 sampmean=smean,
-                                 meanx=meanx))
+                                 sampmean=array(smean, dim=c(nrow(smean), ncol(smean))),
+                                 meanx=array(meanx, dim=c(nrow(meanx), ncol(meanx)))))
 
     if(ny > 0) standata <- c(standata, list(y=y))
     if(n.psi.ov > 0) standata <- c(standata, list(x=x))

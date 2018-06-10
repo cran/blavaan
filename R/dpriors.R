@@ -1,10 +1,43 @@
 dpriors <- function(..., target="jags"){
   userspec <- list(...)
 
-  if(target == "jags"){
+  jagpres <- pkgcheck("runjags")
+  stanpres <- pkgcheck("rstan")
+
+  if(jagpres & !stanpres){
     dp <- do.call("jagpriors", userspec)
-  } else {
+  } else if(stanpres & !jagpres){
     dp <- do.call("stanpriors", userspec)
+  } else if(length(userspec) > 0){
+    ## check whether they are supplying jags or stan distributions
+    jagdists <- transtables()$disttrans[,'jags']
+    ## add other jags dists not in the translation table
+    jagdists <- c(jagdists, 'dbetabin', 'ddirch', 'dmnorm',
+                  'dwish', 'dmt', 'dmulti',
+                  'dbinom', 'dchisq', 'dggamma', # aliases
+                  'dnbinom', 'dweibull', 'ddirich')
+
+    userjags <- sapply(jagdists, function(x) grep(x, userspec))
+
+    if(length(unlist(userjags)) == length(userspec)){
+      if(target == "jags"){
+        dp <- do.call("jagpriors", userspec)
+      } else {
+        stop("blavaan ERROR: JAGS distributions sent to dpriors(), but target != 'jags'")
+      }
+    } else if(length(unlist(userjags)) == 0){
+      ## assume they wanted stan
+      dp <- do.call("stanpriors", userspec)
+    } else {
+      stop("blavaan ERROR: Distributions sent to dpriors() do not match target.")
+    }
+  } else {
+    ## nothing is user specified, just use target
+    if(target == "jags"){
+      dp <- do.call("jagpriors", userspec)
+    } else {
+      dp <- do.call("stanpriors", userspec)
+    }
   }
   
   dp

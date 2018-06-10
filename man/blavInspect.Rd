@@ -27,13 +27,17 @@ documentation.
   \item{\code{"ac.10"}:}{Each parameter's estimated lag-10 autocorrelation.}
   \item{\code{"neff"}:}{Each parameters effective sample size, taking into account autocorrelation.}
   \item{\code{"mcmc"}:}{An object of class \code{mcmc} containing the individual parameter draws from the MCMC run. Aliases: \code{"draws"}, \code{"samples"}.}
+  \item{\code{"mcobj"}:}{The underlying run.jags or stan object that resulted from the MCMC run.}
   \item{\code{"n.chains"}:}{The number of chains sampled.}
   \item{\code{"cp"}:}{The approach used for estimating covariance parameters (\code{"srs"} or \code{"fa"}).}
   \item{\code{"dp"}:}{Default prior distributions used for each type of model parameter.}
   \item{\code{"postmode"}:}{Estimated posterior mode of each free parameter.}
   \item{\code{"postmean"}:}{Estimated posterior mean of each free parameter.}
   \item{\code{"postmedian"}:}{Estimated posterior median of each free parameter.}
-  \item{\code{"lvs"}:}{An object of class \code{mcmc} containing latent variable (factor score) draws. An additional character argument \code{"means"} returns a matrix of mean factor scores.}
+  \item{\code{"lvs"}:}{An object of class \code{mcmc} containing latent
+  variable (factor score) draws.}
+  \item{\code{"lvmeans"}:}{A matrix of mean factor scores (rows are
+  observations, columns are variables).}
   \item{\code{"hpd"}:}{HPD interval of each free parameter. In this case, an additional argument \code{level} can be supplied to specify a number in (0,1) reflecting the percentage of the interval.}
 }
 }

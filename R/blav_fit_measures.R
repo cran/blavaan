@@ -146,7 +146,7 @@ blav_fit_measures <- function(object, fit.measures = "all",
         }
 
         if("csamplls" %in% names(object@external)){
-          if(!is.na(object@external$csamplls)){
+          if(!is.na(as.numeric(object@external$csamplls)[1])){
             cllmn <- mean(as.numeric(object@external$csamplls[,,1]))
           } else {
             cllmn <- NA
@@ -170,24 +170,28 @@ blav_fit_measures <- function(object, fit.measures = "all",
                             lavopt, object@Cache,
                             object@Data, make_mcmc(object@external$mcmcout))
         fitres <- waic(casells)
-        indices["waic"] <- fitres$waic
-        indices["p_waic"] <- fitres$p_waic
+        if(packageVersion('loo') >= '2.0.0') fitres <- fitres$estimates[,'Estimate']
+        indices["waic"] <- fitres[["waic"]]
+        indices["p_waic"] <- fitres[["p_waic"]]
         fitres <- loo(casells)
-        indices["looic"] <- fitres$looic
-        indices["p_loo"] <- fitres$p_loo
+        if(packageVersion('loo') >= '2.0.0') fitres <- fitres$estimates[,'Estimate']
+        indices["looic"] <- fitres[["looic"]]
+        indices["p_loo"] <- fitres[["p_loo"]]
 
         if("csamplls" %in% names(object@external)){
-            casells <- NA #case_lls(object@external$mcmcout, object@Model,
-                           #     object@ParTable, object@SampleStats,
-                           #     lavopt, object@Cache,
-                           #     object@Data, make_mcmc(object@external$mcmcout),
-                           #     conditional = TRUE)
-            fitres <- NA #waic(casells)
-            indices["waic_cond"] <- NA #fitres$waic
-            indices["p_waic_cond"] <- NA #fitres$p_waic
-            fitres <- NA #loo(casells)
-            indices["looic_cond"] <- NA #fitres$looic
-            indices["p_loo_cond"] <- NA #fitres$p_loo
+            casells <- case_lls(object@external$mcmcout, object@Model,
+                                object@ParTable, object@SampleStats,
+                                lavopt, object@Cache,
+                                object@Data, make_mcmc(object@external$mcmcout),
+                                lavobject=object, conditional = TRUE)
+            fitres <- waic(casells)
+            if(packageVersion('loo') >= '2.0.0') fitres <- fitres$estimates[,'Estimate']
+            indices["waic_cond"] <- fitres[["waic"]]
+            indices["p_waic_cond"] <- fitres[["p_waic"]]
+            fitres <- loo(casells)
+            if(packageVersion('loo') >= '2.0.0') fitres <- fitres$estimates[,'Estimate']
+            indices["looic_cond"] <- fitres[["looic"]]
+            indices["p_loo_cond"] <- fitres[["p_loo"]]
         }
     }
     if("margloglik" %in% fit.measures) {

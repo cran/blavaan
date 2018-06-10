@@ -1,16 +1,17 @@
-citHeader("To cite blavaan in publications, please use:")
+bibentry(bibtype = "Article",
+  title        = "{blavaan}: Bayesian Structural Equation Models via Parameter Expansion",
+  author       = c(person(given = c("Edgar", "C."),
+                          family = "Merkle",
+                          email = "merklee@missouri.edu"),
+                   person(given = "Yves",
+                          family = "Rosseel")),
+  journal      = "Journal of Statistical Software",
+  year         = "2018",
+  volume       = "85",
+  number       = "4",
+  pages        = "1--30",
+  doi          = "10.18637/jss.v085.i04",
 
-citEntry(entry = "Article",
-  title        = "blavaan: Bayesian structural equation models via parameter expansion",
-  author       = personList(as.person("Edgar C. Merkle"),
-                            as.person("Yves Rosseel")),
-  journal      = "arXiv 1511.05604",
-  year         = "2016",
-  url          = "https://arxiv.org/abs/1511.05604",
-
-  textVersion =
-  paste("Edgar C. Merkle and Yves Rosseel (2016).",
-        "blavaan: Bayesian structural equation models via parameter expansion.",
-        "arXiv 1511.05604.",
-        "URL https://arxiv.org/abs/1511.05604")
+  header       = "To cite blavaan in publications use:"
 )
+
