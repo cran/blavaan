@@ -141,6 +141,7 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
         lavoptions$estimator <- "ML"
         ## control() is part of lavmodel (for now)
         lavoptions$optim.method <- "none"
+        lavoptions$check.gradient <- FALSE
         if("control" %in% slotNames(lavmodel)){
             lavmodel@control <- list(optim.method="none")
         }
@@ -464,7 +465,7 @@ namecheck <- function(ov.names){
     
     if(length(forbid.idx) > 0L){
         stop("blavaan ERROR: the following variable names must be changed:\n",
-             "                   ", paste(forbidden[forbid.idx], collapse = " "))
+             "                   ", paste(ov.names[forbid.idx], collapse = " "))
     }
 }
 

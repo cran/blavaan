@@ -161,8 +161,10 @@ blavaan <- function(...,  # default lavaan arguments
     jag.do.fit <- TRUE
     if("do.fit" %in% dotNames){
         jag.do.fit <- dotdotdot$do.fit
-        burnin <- 0
-        sample <- 0
+        if(!jag.do.fit){
+            burnin <- 0
+            sample <- 0
+        }
     }
     if("warn" %in% dotNames){
         origwarn <- dotdotdot$warn
@@ -498,7 +500,6 @@ blavaan <- function(...,  # default lavaan arguments
                     } else {
                         rjarg$raftery.options <- list(r=.01, converge.eps=.01)
                     }
-                    if(!("max.time" %in% names(rjarg))) rjarg$max.time <- "5m"
                 }
                 res <- try(do.call(rjcall, rjarg))
             } else {
@@ -534,7 +535,8 @@ blavaan <- function(...,  # default lavaan arguments
           parests <- coeffun(lavpartable, jagtrans$pxpartable, res)
           stansumm <- NA
         } else {
-          parests <- coeffun_stan(jagtrans$pxpartable, res)
+          parests <- coeffun_stan(lavpartable, jagtrans$pxpartable,
+                                  res)
           stansumm <- parests$stansumm
         }
         x <- parests$x
@@ -575,18 +577,10 @@ blavaan <- function(...,  # default lavaan arguments
                 } else {
                     fullpmeans <- rstan::summary(res)$summary[,"mean"]
                 }
-                ## do they have a recent version of lavaan
-                lavvers <- packageVersion('lavaan')
-                recvers <- (lavvers == '0.6-1' | lavvers >= package_version('0.6-1.1189'))
-                if(recvers){
-                  cfx <- get_ll(fullpmeans, lavmodel = lavmodel, lavpartable = lavpartable,
-                                lavsamplestats = lavsamplestats, lavoptions = lavoptions,
-                                lavcache = lavcache, lavdata = lavdata,
-                                lavobject = LAV, conditional = TRUE)[1]
-                } else {
-                  cat("blavaan NOTE: Conditional ICs require a newer version of lavaan;\n   see http://lavaan.ugent.be/development.html\n")
-                  cfx <- NA
-                }
+                cfx <- get_ll(fullpmeans, lavmodel = lavmodel, lavpartable = lavpartable,
+                              lavsamplestats = lavsamplestats, lavoptions = lavoptions,
+                              lavcache = lavcache, lavdata = lavdata,
+                              lavobject = LAV, conditional = TRUE)[1]
             }
         } else {
             attr(x, "fx") <- as.numeric(NA)
@@ -625,25 +619,22 @@ blavaan <- function(...,  # default lavaan arguments
       }
       
       if(save.lvs) {
-        if(recvers){
-          csamplls <- samp_lls(res, lavmodel, lavpartable,
-                               lavsamplestats, lavoptions, lavcache,
-                               lavdata, lavmcmc, lavobject = LAV,
-                               conditional = TRUE)
-        } else {
-          csamplls <- NA
-        }
-        if(jags.ic & recvers) {
+        csamplls <- samp_lls(res, lavmodel, lavpartable,
+                             lavsamplestats, lavoptions, lavcache,
+                             lavdata, lavmcmc, lavobject = LAV,
+                             conditional = TRUE)
+        if(jags.ic) {
           csampkls <- samp_kls(res, lavmodel, lavpartable,
                                lavsamplestats, lavoptions, lavcache,
                                lavdata, lavmcmc, lavobject = LAV,
                                conditional = TRUE)
-        } else {
-          csampkls <- NA
         }
       }
     } else {
       samplls <- NA
+      sampkls <- NA
+      csamplls <- NA
+      csampkls <- NA
     }
 
     timing$PostPred <- (proc.time()[3] - start.time)

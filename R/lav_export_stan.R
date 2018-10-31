@@ -275,7 +275,7 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
                   partable$op == "~~" &
                   partable$lhs == partable$rhs &
                   partable$group == 1 &
-                  partable$mat == "psi")
+                  grepl("psi", partable$mat))
   n.psi.ov <- length(psi.ov)
   ny <- nov - n.psi.ov
   if(n.psi.ov > 0){
@@ -892,7 +892,7 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
     if(any(partable$mat == "def")){
       ndecs <- sum(partable$mat == "def" &
                    partable$group == 1)
-      tpdecs <- paste0(tpdecs, "\n", t1, "real def[", ndecs, ", 1, ",
+      tpdecs <- paste0(tpdecs, "\n", t1, "real def[", ndecs, ",1,",
                        ngroups, "];\n")
     }
 
@@ -967,6 +967,16 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
           tmpidx <- which(partable$lhs == lvload[i] &
                           partable$op == "=~" &
                           partable$group == k)[1]
+          ## regressions of the lv on ov
+          regov <- which(partable$rhs == lvload[i] &
+                         partable$op == "~" &
+                         !(partable$lhs %in% lvload) &
+                         partable$group == k)
+          ## regressions of an ov on lv
+          reglv <- which(partable$lhs == lvload[i] &
+                         partable$op == "~" &
+                         !(partable$rhs %in% lvload) &
+                         partable$group == k)
 
           GQ <- paste0(GQ, t1, "if(lambdaUNC[",
                        partable$row[tmpidx], ",", partable$col[tmpidx],
@@ -976,9 +986,20 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
                        k, "]));\n")
           GQ <- paste0(GQ, t2, "eta[,", partable$col[tmpidx],
                        "] = to_vector(-1 * etaUNC[,", partable$col[tmpidx], "]);\n")
+          if(length(regov) > 0){
+            GQ <- paste0(GQ, t2, "beta[", partable$row[regov], ",",
+                         partable$col[regov], ",", k, "] = -1 * ",
+                         "betaUNC[", partable$row[regov], ",",
+                         partable$col[regov], ",", k, "];\n")
+          }
+          if(length(reglv) > 0){
+            GQ <- paste0(GQ, t2, "beta[", partable$row[reglv], ",",
+                         partable$col[reglv], ",", k, "] = -1 * ",
+                         "betaUNC[", partable$row[reglv], ",",
+                         partable$col[reglv], ",", k, "];\n")
+          }
 
-          ## find regressions associated with this lv, they need
-          ## sign changes too
+          ## find lv-on-lv regressions, they need sign changes too
           regidx <- which(partable$rhs == lvload[i] &
                           partable$op == "~" &
                           partable$lhs %in% lvload &
@@ -1081,7 +1102,7 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
   out
 }
 
-coeffun_stan <- function(lavpartable, rsob, fun = "mean") {
+coeffun_stan <- function(lavpartable, pxpartable, rsob, fun = "mean") {
   ## Extract posterior means from coda.samples() object.
   ## rsob is the result of rstan().
   stanfit <- !is.null(rsob)
@@ -1097,44 +1118,48 @@ coeffun_stan <- function(lavpartable, rsob, fun = "mean") {
     }
   }
 
+  pxpartable$pxnames <- with(pxpartable, paste0(mat, "[", row, ",", col, ",",
+                                                group, "]"))
+  
   ## move "free" parameters from rho to theta
-  rhopars <- grep("rho", lavpartable$mat)
+  rhopars <- grep("rho", pxpartable$mat)
   if(length(rhopars) > 0){
     for(i in 1:length(rhopars)){
       idx <- rhopars[i]
-      matname <- ifelse(lavpartable$mat[idx] == "rho", "theta", "psi")
-      newidx <- which(lavpartable$mat == matname &
-                      lavpartable$row == lavpartable$row[idx] &
-                      lavpartable$col == lavpartable$col[idx] &
-                      lavpartable$group == lavpartable$group[idx])
+      matname <- ifelse(pxpartable$mat[idx] == "rho", "theta", "psi")
+      newidx <- which(pxpartable$mat == matname &
+                      pxpartable$row == pxpartable$row[idx] &
+                      pxpartable$col == pxpartable$col[idx] &
+                      pxpartable$group == pxpartable$group[idx])
 
-      tmpfree <- lavpartable$free[idx]
+      tmpfree <- pxpartable$free[idx]
 
-      lavpartable$free[idx] <- 0L
-      lavpartable$free[newidx] <- tmpfree
+      pxpartable$free[idx] <- 0L
+      pxpartable$free[newidx] <- tmpfree
     }
   }
-  lavord <- order(lavpartable$id)
-  lavpartable <- lapply(lavpartable, function(x) x[lavord])
+  lavord <- order(pxpartable$id)
+  pxpartable <- lapply(pxpartable, function(x) x[lavord])
   
   ## from stan to partable
+  ## NB: order of parameters in mcmc array differs from order
+  ##     of parameters in summary()
+  pxpartable$stanpnum <- rep(NA, length(pxpartable[[1]]))
+  pxpartable$stansumnum <- rep(NA, length(pxpartable[[1]]))
   if(stanfit){
-    ptnames <- with(lavpartable, paste0(mat, "[", row, ",", col, ",",
-                                        group, "]"))
+    ptnames <- pxpartable$pxnames
     cmatch <- match(ptnames, names(b.est), nomatch=0)
-    lavpartable$est[cmatch > 0] <- b.est[cmatch]
-    lavpartable$psrf[cmatch > 0] <- rssumm$summary[cmatch,"Rhat"]
-
-    ## NB: order of parameters in mcmc array differs from order
-    ##     of parameters in summary()
-    lavpartable$stanpnum <- match(ptnames, names(rsmcmc[1,1,]), nomatch=0)
-    lavpartable$stansumnum <- match(ptnames, rownames(rssumm$summary), nomatch=0)
+    pxpartable$est[cmatch > 0] <- b.est[cmatch]
+    pxpartable$psrf[cmatch > 0] <- rssumm$summary[cmatch,"Rhat"]
 
     sdvec <- rssumm$summary[cmatch, "sd"]
 
+    pxpartable$stanpnum <- match(ptnames, names(rsmcmc[1,1,]), nomatch=0)
+    pxpartable$stansumnum <- match(ptnames, rownames(rssumm$summary), nomatch=0)
+    
     ## vcorr
     draw_mat <- as.matrix(rsob)
-    cmatch <- match(ptnames[lavpartable$free > 0][order(lavpartable$free[lavpartable$free > 0])], colnames(draw_mat))
+    cmatch <- match(ptnames[pxpartable$free > 0][order(pxpartable$free[pxpartable$free > 0])], colnames(draw_mat))
     vcorr <- cor(draw_mat[,cmatch])
 
     svmatch <- match(colnames(vcorr), names(sdvec), nomatch = 0)
@@ -1144,11 +1169,33 @@ coeffun_stan <- function(lavpartable, rsob, fun = "mean") {
     vcorr <- NULL
     rssumm <- list(summary=NULL)
   }
-  
-  ## convert to list
-  lavpartable <- as.list(lavpartable, seq(ncol(lavpartable)))
 
-  list(x = lavpartable$est[lavpartable$free > 0][order(lavpartable$free[lavpartable$free > 0])],
+  ## now match it all to original partable
+  ptmatch <- match(lavpartable$free[lavpartable$free > 0], pxpartable$free)
+  if("est" %in% names(pxpartable)){
+    ## to handle do.fit = FALSE
+    lavpartable$est[lavpartable$free > 0] <- pxpartable$est[ptmatch]
+  }
+  lavpartable$psrf <- rep(NA, length(lavpartable$free))
+  if(stanfit){
+    lavpartable$psrf[lavpartable$free > 0] <- pxpartable$psrf[ptmatch]
+  }
+  lavpartable$prior[lavpartable$free > 0] <- pxpartable$prior[ptmatch]
+  lavpartable$pxnames[lavpartable$free > 0] <- pxpartable$pxnames[ptmatch]
+  lavpartable$stanpnum[lavpartable$free > 0] <- pxpartable$stanpnum[ptmatch]
+  lavpartable$stansumnum[lavpartable$free > 0] <- pxpartable$stansumnum[ptmatch]
+
+  ## defined variables
+  defmatch <- which(pxpartable$op == ":=")
+  if(length(defmatch) > 0){
+    lavpartable$est[lavpartable$op == ":="] <- pxpartable$est[defmatch]
+    lavpartable$psrf[lavpartable$op == ":="] <- pxpartable$psrf[defmatch]
+    lavpartable$pxnames[lavpartable$op == ":="] <- pxpartable$pxnames[defmatch]
+    lavpartable$stanpnum[lavpartable$op == ":="] <- pxpartable$stanpnum[defmatch]
+    lavpartable$stansumnum[lavpartable$op == ":="] <- pxpartable$stansumnum[defmatch]
+  }
+  
+  list(x = lavpartable$est[lavpartable$free > 0],
        lavpartable = lavpartable,
        vcorr = vcorr,
        sd = sdvec, stansumm = rssumm$summary)

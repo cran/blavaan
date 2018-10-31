@@ -34,11 +34,16 @@ blavInspect <- function(blavobject, what, ...) {
             idx <- idx[!is.na(idx)]
         } else {
             idx <- blavobject@ParTable$stansumnum
-            idx <- idx[blavobject@ParTable$free > 0]
+            if("pxnames" %in% names(blavobject@ParTable)){
+              drows <- grepl("^def", blavobject@ParTable$pxnames)
+            } else {
+              drows <- grepl("def", blavobject@ParTable$mat)
+            }
+            idx <- idx[blavobject@ParTable$free > 0 | drows]
         }
         labs <- lav_partable_labels(blavobject@ParTable, type = "free")
         if(what %in% c("start", "starting.values", "inits")){
-            blavobject@external$mcmcout$inits
+            blavobject@external$inits
         } else if(what %in% c("psrf", "ac.10", "neff")){
             if(jagtarget){
                 mcmcsumm <- blavobject@external$mcmcout$summaries
@@ -55,7 +60,7 @@ blavInspect <- function(blavobject, what, ...) {
                 if(jagtarget){
                     OUT <- mcmcsumm[idx,'AC.10']
                 } else {
-                    stop("blavaan ERROR: autocorrelation stat currently unavailable for stan.")
+                    stop("blavaan ERROR: autocorrelation stat currently unavailable for Stan.")
                 }
             } else {
                 if(jagtarget){
@@ -88,7 +93,7 @@ blavInspect <- function(blavobject, what, ...) {
             if(jagtarget){
                 etas <- any(blavobject@external$mcmcout$monitor == "eta")
             } else {
-                etas <- any(grepl("eta", rownames(blavobject@external$stansumm)))
+                etas <- any(grepl("^eta", rownames(blavobject@external$stansumm)))
             }
             if(!etas) stop("blavaan ERROR: factor scores not saved; set save.lvs=TRUE")
 
@@ -162,17 +167,19 @@ blavInspect <- function(blavobject, what, ...) {
                 if(jagtarget){
                     OUT <- mcmcsumm[idx,'Mode']
                 } else {
-                    stop("blavaan ERROR: Modes unavailable for stan.")
+                    stop("blavaan ERROR: Modes unavailable for Stan.")
                 }
             }
             if(add.labels) names(OUT) <- labs
             OUT
         } else if(what == "jagnames"){
+            if(!jagtarget) stop("blavaan ERROR: JAGS was not used for model estimation.")
             OUT <- blavobject@ParTable$pxnames[blavobject@ParTable$free > 0]
             OUT <- OUT[order(blavobject@ParTable$free[blavobject@ParTable$free > 0])]
             if(add.labels) names(OUT) <- labs
             OUT
         } else if(what == "stannames"){
+            if(jagtarget) stop("blavaan ERROR: Stan was not used for model estimation.")
             mcmcsumm <- rstan::summary(blavobject@external$mcmcout)$summary
             OUT <- rownames(mcmcsumm)[idx]
             if(add.labels) names(OUT) <- labs
