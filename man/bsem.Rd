@@ -6,8 +6,8 @@ Fit a Structural Equation Model (SEM).}
 \usage{
 bsem(..., cp = "srs",
      dp = NULL, n.chains = 3, burnin, sample,
-     adapt, mcmcfile = FALSE, mcmcextra = list(), inits = "simple",
-     convergence = "manual", target = "jags", save.lvs = FALSE,
+     adapt, mcmcfile = FALSE, mcmcextra = list(), inits = "prior",
+     convergence = "manual", target = "stan", save.lvs = FALSE,
      jags.ic = FALSE, seed = NULL, bcontrol = list())
 }
 \arguments{
@@ -32,8 +32,8 @@ bsem(..., cp = "srs",
   code to insert in the JAGS/Stan model syntax, and the \code{monitor} object
   is a character vector containing extra JAGS/Stan parameters to sample.}
 \item{inits}{If it is a character string, the options are currently
-    \code{"simple"} (default), \code{"Mplus"}, \code{"prior"}, and
-    \code{"jags"}.  In the first two 
+    \code{"simple"}, \code{"Mplus"}, \code{"prior"} (default), and
+    \code{"jags"}.  In the first two
     cases, parameter values are set as though they will be estimated via
     ML (see \code{\link{lavaan}}).  The starting parameter value for
     each chain is then perturbed from the original values through the
@@ -45,9 +45,9 @@ bsem(..., cp = "srs",
     If \code{start} is a fitted
     object of class \code{\linkS4class{lavaan}}, the estimated values of
     the corresponding parameters will be extracted, then perturbed in
-    the manner described above. If it is a model list, 
-    for example the output of the \code{paramaterEstimates()} function, 
-    the values of the \code{est} or \code{start} or \code{ustart} column 
+    the manner described above. If it is a model list,
+    for example the output of the \code{paramaterEstimates()} function,
+    the values of the \code{est} or \code{start} or \code{ustart} column
     (whichever is found first) will be extracted.}
 \item{convergence}{If \code{"auto"}, parameters will be
   sampled until convergence is achieved (via \code{autorun.jags}). In
@@ -56,8 +56,9 @@ bsem(..., cp = "srs",
   respectively. Otherwise, parameters
   are sampled as specified by the user (or by the \code{run.jags}
   defaults).}
-\item{target}{Desired MCMC package (\code{"jags"} is default, but
-  \code{"stan"} also available).}
+\item{target}{Desired MCMC package, with \code{"stan"} (pre-compiled) as
+  default. Other options include \code{"jags"} and \code{"stanclassic"},
+  which provide greater functionality than \code{"stan"} but is much slower.}
 \item{save.lvs}{Should sample latent variables (factor scores) be saved? Logical; defaults to FALSE}
 \item{jags.ic}{Should DIC be computed the JAGS way, in addition to the BUGS way? Logical; defaults to FALSE}
 \item{seed}{A vector of length \code{n.chains} (for target
@@ -74,7 +75,7 @@ bsem(..., cp = "srs",
     \code{int.ov.free = TRUE}, \code{int.lv.free = FALSE},
     \code{auto.fix.first = TRUE} (unless \code{std.lv = TRUE}),
     \code{auto.fix.single = TRUE}, \code{auto.var = TRUE},
-    \code{auto.cov.lv.x = TRUE}, 
+    \code{auto.cov.lv.x = TRUE},
     \code{auto.th = TRUE}, \code{auto.delta = TRUE},
     and \code{auto.cov.y = TRUE}.
   }
@@ -96,9 +97,9 @@ Software, 85(4), 1-30. URL http://www.jstatsoft.org/v85/i04/.
 }
 \examples{
 \dontrun{
-## The industrialization and Political Democracy Example 
+## The industrialization and Political Democracy Example
 ## Bollen (1989), page 332
-model <- ' 
+model <- '
   # latent variable definitions
      ind60 =~ x1 + x2 + x3
      dem60 =~ y1 + a*y2 + b*y3 + c*y4
@@ -118,8 +119,7 @@ model <- '
 
 ## unique priors for mv intercepts; parallel chains
 fit <- bsem(model, data=PoliticalDemocracy,
-            dp=dpriors(nu="dnorm(5,1e-2)"),
-            bcontrol=list(method="rjparallel"))
+            dp=dpriors(nu="normal(5,10)"))
 summary(fit)
 }
 }

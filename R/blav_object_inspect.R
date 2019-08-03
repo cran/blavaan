@@ -24,11 +24,18 @@ blavInspect <- function(blavobject, what, ...) {
                    "postmedian", "hpd", "jagnames", "stannames",
                    "fscores", "lvs", "fsmeans", "lvmeans", "mcobj")
 
+    ## blavwhats that don't require do.fit
+    blavnofit <- c("start", "starting.values", "inits", "n.chains", "cp", "dp",
+                   "jagnames", "stannames")
+  
     ## whats that are not handled
     nowhats <- c("mi", "modindices", "modification.indices",
                  "wls.est", "wls.obs", "wls.v")
 
     if(what %in% blavwhats){
+        if(!(what %in% blavnofit) & !blavobject@Options$do.fit){
+            stop(paste0("blavaan ERROR: ", what, " does not exist when do.fit = FALSE"))
+        }
         if(jagtarget){
             idx <- blavobject@ParTable$jagpnum
             idx <- idx[!is.na(idx)]
@@ -124,9 +131,11 @@ blavInspect <- function(blavobject, what, ...) {
             draws <- mcmc.list(draws)
 
             if(what %in% c("lvmeans", "fsmeans") | "means" %in% dotdotdot){
+                br <- TRUE
                 if(jagtarget){
                     summ <- blavobject@external$mcmcout$summaries
                     summname <- "Mean"
+                    br <- FALSE
                 } else {
                     summ <- blavobject@external$stansumm
                     summname <- "mean"
@@ -134,7 +143,7 @@ blavInspect <- function(blavobject, what, ...) {
                 mnrows <- grep("^eta", rownames(summ))
 
                 draws <- matrix(summ[mnrows,summname], nsamp,
-                                length(mnrows)/nsamp, byrow=TRUE)[,1:nlv]
+                                length(mnrows)/nsamp, byrow=br)[,1:nlv]
             }
             draws
         } else if(what == "n.chains"){

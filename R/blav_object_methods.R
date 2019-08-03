@@ -334,20 +334,29 @@ plot.blavaan <- function(x, pars=NULL, plot.type="trace", ...){
         pars <- pars[pars > 0 & !is.na(pars)]
     }
     if(x@Options$target == "jags"){
+        ddd <- list(...)
+        if(plot.type=="trace"){
+          if(!("trace.iters" %in% names(ddd))) ddd$trace.iters <- x@external$sample
+        }
         parnames <- x@ParTable$pxnames[match(pars, x@ParTable$free)]
         parlabs <- sapply(with(x@ParTable, paste0(lhs,op,rhs)[match(pars, free)]), list)
         axis_env$trans <- cbind(parnames, parlabs)
-        plot(x@external$mcmcout, plot.type=plot.type, vars=parnames,
-             trace.options=list(ylab=expression(labelfun(varname))), ...)
+
+        do.call(plot,
+                c(list(x=x@external$mcmcout, plot.type=plot.type, vars=parnames,
+                       trace.options=list(ylab=expression(labelfun(varname)))),
+                  ddd))
     } else {
         parnums <- x@ParTable$stanpnum[match(pars, x@ParTable$free)]
         parlabs <- with(x@ParTable, paste0(lhs,op,rhs)[match(pars, free)])
+        oldnames <- names(x@external$mcmcout)[parnums]
         names(x@external$mcmcout)[parnums] <- parlabs
         plargs <- list(x = x@external$mcmcout,
                        plotfun = plot.type)
-        plargs <- c(plargs, list(pars = parlabs))
+        plargs <- c(plargs, list(pars = parlabs), list(...))
 
         do.call(rstan::plot, plargs)
+        names(x@external$mcmcout)[parnums] <- oldnames
     }
 }
 
@@ -408,6 +417,7 @@ standardizedPosterior <- standardizedposterior <- function(object, ...) {
   ## use tmp2 object to figure out the right number of columns, then loop
   fullres <- matrix(NA, nrow(draws), nrow(tmp2))
   colnames(fullres) <- with(tmp2, paste0(lhs, op, rhs))
+  if("group" %in% colnames(tmp2)) colnames(fullres) <- paste0(colnames(fullres), '.g', tmp2$group)
   fullres[1,] <- tmp2[, 'est.std']
 
   for(i in 2:nrow(draws)){

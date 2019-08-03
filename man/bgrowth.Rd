@@ -6,7 +6,7 @@ Fit a Growth Curve model.}
 \usage{
 bgrowth(..., cp = "srs", dp = NULL, n.chains = 3,
 burnin, sample, adapt, mcmcfile = FALSE, mcmcextra = list(), 
-inits = "simple", convergence = "manual", target = "jags",
+inits = "prior", convergence = "manual", target = "stan",
 save.lvs = FALSE, jags.ic = FALSE, seed = NULL, bcontrol = list())
 }
 \arguments{
@@ -31,7 +31,7 @@ save.lvs = FALSE, jags.ic = FALSE, seed = NULL, bcontrol = list())
   code to insert in the JAGS/Stan model syntax, and the \code{monitor} object
   is a character vector containing extra JAGS/Stan parameters to sample.}
 \item{inits}{If it is a character string, the options are currently
-    \code{"simple"} (default), \code{"Mplus"}, \code{"prior"}, and
+    \code{"simple"}, \code{"Mplus"}, \code{"prior"} (default), and
     \code{"jags"}.  In the first two 
     cases, parameter values are set as though they will be estimated via
     ML (see \code{\link{lavaan}}).  The starting parameter value for
@@ -55,8 +55,9 @@ save.lvs = FALSE, jags.ic = FALSE, seed = NULL, bcontrol = list())
   respectively. Otherwise, parameters
   are sampled as specified by the user (or by the \code{run.jags}
   defaults).}
-\item{target}{Desired MCMC package (\code{"jags"} is default, but
-  \code{"stan"} also available).}
+\item{target}{Desired MCMC package, with \code{"stan"} (pre-compiled) as
+  default. Other options include \code{"jags"} and \code{"stanclassic"},
+  which provide greater functionality than \code{"stan"} but is much slower.}
 \item{save.lvs}{Should sample latent variables (factor scores) be saved? Logical; defaults to FALSE}
 \item{jags.ic}{Should DIC be computed the JAGS way, in addition to the BUGS way? Logical; defaults to FALSE}
 \item{seed}{A vector of length \code{n.chains} (for target

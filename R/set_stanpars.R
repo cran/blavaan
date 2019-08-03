@@ -24,7 +24,7 @@ set_stanpars <- function(TXT2, partable, nfree, dp, lv.names.x){
                        partable$op == "==") |
                        (grepl("rho", partable$mat[i]) &
                         is.na(partable$rhoidx[i])))
-        compeq <- which(partable$lhs == partable$label[i] &
+        compeq <- which(partable$lhs == partable$plabel[i] &
                         partable$op %in% c("==", ":=") &
                         grepl("\\+|-|/|\\*|\\(|\\)|\\^", partable$rhs))
         fixed <- partable$free[i] == 0 & partable$op[i] != ":="
@@ -39,14 +39,14 @@ set_stanpars <- function(TXT2, partable, nfree, dp, lv.names.x){
     }
 
     for(i in 1:nrow(partable)){
-        if(partable$mat[i] != "" | partable$op[i] == ":="){            
+        if(partable$mat[i] != "" | partable$op[i] == ":="){
             ## to find equality constraints
             eqpar <- which(partable$rhs == partable$plabel[i] &
                            partable$op == "==")
 
             ## only complex equality constraints and defined parameters;
             ## rhs needs math expression
-            compeq <- which(partable$lhs == partable$label[i] &
+            compeq <- which(partable$lhs == partable$plabel[i] &
                             partable$op %in% c("==", ":=") &
                             grepl("\\+|-|/|\\*|\\(|\\)|\\^", partable$rhs))
             ## TODO check for inequality constraints here?
@@ -100,7 +100,7 @@ set_stanpars <- function(TXT2, partable, nfree, dp, lv.names.x){
                 ## see lav_partable_constraints.R
                 rhsvars <- all.vars(parse(file="",
                                           text=partable$rhs[compeq]))
-                pvnum <- match(rhsvars, partable$label)
+                pvnum <- match(rhsvars, partable$plabel)
 
                 rhstrans <- paste(partable$mat[pvnum], "[", partable$row[pvnum],
                                   ",", partable$col[pvnum], ",", partable$group[pvnum],
