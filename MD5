@@ -1,12 +1,12 @@
-0bda315952202702c5aee226a5e496cf *DESCRIPTION
+48de48df49bacbeb96157c439c3521f5 *DESCRIPTION
 0c655a3b62379a6bc1856a438b7a013d *NAMESPACE
-d5ae1195b1d8b621063f1f89b891b731 *NEWS
+cabbcad41aded30bb1ab33cacf8f512e *NEWS
 be8bb39b5618c2843ad576dd22765133 *R/00class.R
 6834420f16deb29ac3678c5b60fb1e68 *R/blav_compare.R
 254cc8df3337d026ed5d898c50674a43 *R/blav_fit.R
 36e8b268cdf3ce6ef5ace1f185bd857d *R/blav_fit_measures.R
 9eccf1b1dc97a4cab7b628a248daaf7f *R/blav_object_inspect.R
-e6fbbbf23b5b6d053b07e9b0b5472900 *R/blav_object_methods.R
+2261eb33836aee2a7b74dd4e4876ff43 *R/blav_object_methods.R
 5df20bacaa72338981492f93e49bc990 *R/blav_test.R
 91c3600bbd12a6f048b3948a08763ba0 *R/blav_utils.R
 3424ed8217d74ce53c98337ae9b2adad *R/blavaan.R
