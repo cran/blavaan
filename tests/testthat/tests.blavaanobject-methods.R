@@ -75,6 +75,31 @@ test_that("blavaan object methods work", {
 
     expect_equal(dim(standardizedposterior(fitjags)),
                  dim(standardizedposterior(fitstanc)))
+
+    expect_equal(dim(blavInspect(fitstanfs, 'lvmeans')),
+                 c(301, 2))
+
+    expect_equal(dim(blavInspect(fitstanfs, 'lvs')[[2]]),
+                 c(10, 602))
+
+    ## plots
+    expect_silent(p <- plot(fitstan, showplot = FALSE))
+    expect_silent(p <- plot(fitstan, 1:4, showplot = FALSE))
+    expect_silent(p <- plot(fitstan, plot.type = "hist", showplot = FALSE))
+    expect_silent(p <- plot(fitstan, 1:4, plot.type = "dens", showplot = FALSE))
+    expect_silent(p <- plot(fitstan, c(2,4), plot.type = "scatter", showplot = FALSE))
+
+    expect_silent(p <- plot(fitstanc, showplot = FALSE))
+    expect_silent(p <- plot(fitstanc, 1:4, showplot = FALSE))
+    expect_silent(p <- plot(fitstanc, plot.type = "hist", showplot = FALSE))
+    expect_silent(p <- plot(fitstanc, 1:4, plot.type = "dens", showplot = FALSE))
+    expect_silent(p <- plot(fitstanc, c(2,4), plot.type = "scatter", showplot = FALSE))
+
+    expect_silent(p <- plot(fitjags, showplot = FALSE))
+    expect_silent(p <- plot(fitjags, 1:4, showplot = FALSE))
+    expect_silent(p <- plot(fitjags, plot.type = "hist", showplot = FALSE))
+    expect_silent(p <- plot(fitjags, 1:4, plot.type = "dens", showplot = FALSE))
+    expect_silent(p <- plot(fitjags, c(2,4), plot.type = "scatter", showplot = FALSE))
   }
     
 })
