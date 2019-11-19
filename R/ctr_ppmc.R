@@ -57,7 +57,7 @@ summary.blavPPMC <- function(object, discFUN, dist = c("obs","sim"),
     if ("mode" %in% central.tendency || "map" %in% central.tendency) {
       ## can the modeest package be used?
       if (suppressMessages(requireNamespace("modeest", quietly = TRUE))) {
-        out <- c(out, MAP =  modeest::mlv(x, method = "kernel", na.rm = TRUE)$M)
+        out <- c(out, MAP =  modeest::mlv(x, method = "kernel", na.rm = TRUE)[1])
       } else {
         ## if not, use the quick-and-dirty way
         dd <- density(x, na.rm = TRUE)
@@ -508,6 +508,7 @@ ppmc <- function(object, thin = 1, fit.measures = c("srmr","chisq"),
                   lavdata = object@Data,
                   lavcache = object@Cache,
                   lavjags = object@external$mcmcout,
+                  samplls = object@external$samplls,
                   measure = fit.measures, thin = thin, discFUN = discFUN)
 
   ## "out" is a list:

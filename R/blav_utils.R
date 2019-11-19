@@ -27,11 +27,11 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
       #                              lavsamplestats, ETA = eta)
       lavobject@Model <- lavmodel
       mnvec <- lavPredict(lavobject, type="ov", ETA = eta)
-      if(any(class(mnvec) == "matrix")) mnvec <- list(mnvec)
+      if(inherits(mnvec, "matrix")) mnvec <- list(mnvec)
 
       #covmat <- lavaan:::computeTHETA(lavmodel, lavmodel@GLIST)
       covmat <- lavInspect(lavobject, 'theta')
-      if(any(class(covmat) == "matrix")) covmat <- list(covmat)
+      if(inherits(covmat, "matrix")) covmat <- list(covmat)
       ## to avoid warnings from mnormt::pd.solve
       covmat <- lapply(covmat, function(x){
         class(x) <- "matrix"
@@ -165,8 +165,8 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
             if(casewise){
                 ll.samp <- llcont(fit.samp)
             } else if(measure[1] == "logl"){
-                ll.samp <- c(fitMeasures(fit.samp, "logl"),
-                             fitMeasures(fit.samp, "unrestricted.logl"))
+              ll.samp <- fitMeasures(fit.samp,
+                                     c("logl", "unrestricted.logl"))
             } else {
                 ll.samp <- fitMeasures(fit.samp, measure)
             }
@@ -198,22 +198,25 @@ samp_lls <- function(lavjags        = NULL,
     nsamps <- length(itnums)
 
     nchain <- length(lavmcmc)
-    llmat <- array(NA, c(nsamps, nchain, 2)) ## logl + baseline logl
 
-    for(i in 1:nsamps){
-        for(j in 1:nchain){
-            llmat[i,j,1:2] <- get_ll(lavmcmc[[j]][itnums[i],],
-                                     lavmodel,
-                                     lavpartable,
-                                     lavsamplestats,
-                                     lavoptions,
-                                     lavcache,
-                                     lavdata,
-                                     lavobject,
-                                     conditional = conditional)
-        }
-    }
+    loop.args <- list(X = 1:nsamps, FUN = function(i){
+      tmpmat <- matrix(NA, nchain, 2)
+      for(j in 1:nchain){
+        tmpmat[j,1:2] <- get_ll(lavmcmc[[j]][itnums[i],],
+                               lavmodel,
+                               lavpartable,
+                               lavsamplestats,
+                               lavoptions,
+                               lavcache,
+                               lavdata,
+                               lavobject,
+                               conditional = conditional)
+      }
+      tmpmat})
 
+    llmat <- do.call("future_lapply", loop.args)
+    llmat <- array(unlist(llmat), c(nchain, 2, nsamps)) ## logl + baseline logl
+    llmat <- aperm(llmat, c(3,1,2))
     llmat
 }
 
@@ -238,24 +241,24 @@ case_lls <- function(lavjags        = NULL,
     ntot <- sum(unlist(lavdata@nobs))
     llmat <- matrix(NA, nchain*nsamps, sum(unlist(lavdata@nobs)))
 
-    for(i in 1:nsamps){
-        for(j in 1:nchain){
-            clls <- get_ll(lavmcmc[[j]][itnums[i],],
-                           lavmodel,
-                           lavpartable,
-                           lavsamplestats,
-                           lavoptions,
-                           lavcache,
-                           lavdata,
-                           lavobject,
-                           casewise = TRUE,
-                           conditional = conditional)
-
-            if(length(clls) > ntot) clls <- clls[!is.na(clls)]
-            llmat[(i-1)*nchain + j,] <- clls
-        }
+    tmpres <- vector("list", nchain)
+    for(j in 1:nchain){
+      loop.args <- list(X = 1:nsamps, FUN = function(i, j){
+        get_ll(lavmcmc[[j]][itnums[i],],
+               lavmodel,
+               lavpartable,
+               lavsamplestats,
+               lavoptions,
+               lavcache,
+               lavdata,
+               lavobject,
+               casewise = TRUE,
+               conditional = conditional)}, j = j)
+      tmpres[[j]] <- t(do.call("future_sapply", loop.args))
     }
 
+    llmat <- do.call("rbind", tmpres)
+      
     llmat
 }
 
@@ -276,7 +279,7 @@ fill_params <- function(postsamp      = NULL,
 ## re-arrange columns of parameter samples to match that of blavaan object
 rearr_params <- function(mcmc         = NULL,
                          lavpartable  = NULL){
-    if(class(mcmc) == "list" & length(mcmc) > 1){
+    if(inherits(mcmc, "list") & length(mcmc) > 1){
         fullmat <- do.call("rbind", mcmc)
     }
     fullmat <- mcmc[[1]]
@@ -522,15 +525,15 @@ samp_kls <- function(lavjags        = NULL,
 
             lavobject@Model <- lavmodel0
             mnvec0 <- lavPredict(lavobject, type="ov", ETA=eta0)
-            if(any(class(mnvec0) == "matrix")) mnvec0 <- list(mnvec0)
+            if(inherits(mnvec0, "matrix")) mnvec0 <- list(mnvec0)
             cmat0 <- lavInspect(lavobject, 'theta')
-            if(any(class(cmat0) == "matrix")) cmat0 <- list(cmat0)
+            if(inherits(cmat0, "matrix")) cmat0 <- list(cmat0)
 
             lavobject@Model <- lavmodel1
             mnvec1 <- lavPredict(lavobject, type="ov", ETA=eta1)
-            if(any(class(mnvec1) == "matrix")) mnvec1 <- list(mnvec1)
+            if(inherits(mnvec1, "matrix")) mnvec1 <- list(mnvec1)
             cmat1 <- lavInspect(lavobject, 'theta')
-            if(any(class(cmat1) == "matrix")) cmat1 <- list(cmat1)
+            if(inherits(cmat1, "matrix")) cmat1 <- list(cmat1)
 
             implied0 <- list(cov = cmat0, mean = mnvec0,
                              slopes = vector("list", ngroups),
@@ -662,7 +665,7 @@ samp_idx <- function(lavjags        = NULL,
 
 make_mcmc <- function(mcmcout){
   ## extract mcmc draws from jags/stan object
-  if(class(mcmcout) == "runjags"){
+  if(inherits(mcmcout, "runjags")){
     lavmcmc <- mcmcout$mcmc
   } else {
     ## for stan: as.array() gives parameters in a different order from summary()

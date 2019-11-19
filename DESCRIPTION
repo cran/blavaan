@@ -1,6 +1,6 @@
 Package: blavaan
 Title: Bayesian Latent Variable Analysis
-Version: 0.3-7
+Version: 0.3-8
 Authors@R: c(person(given = "Edgar", family = "Merkle",
                     role = c("aut", "cre"),
                     email = "merklee@missouri.edu",
@@ -35,11 +35,11 @@ Imports: stats, utils, graphics, MCMCpack, coda, mnormt, nonnest2(>=
         bayesplot, future.apply
 LinkingTo: StanHeaders (>= 2.18.1), rstan (>= 2.19.2), BH (>= 1.69.0),
         Rcpp (>= 0.12.15), RcppEigen (>= 0.3.3.4.0)
-Suggests: runjags(>= 2.0.4-2), modeest, rjags, semTools, testthat(>=
-        2.0.0)
+Suggests: runjags(>= 2.0.4-2), modeest(>= 2.3.3), rjags, semTools,
+        testthat(>= 2.0.0)
 SystemRequirements: GNU make
 NeedsCompilation: yes
-Packaged: 2019-09-27 18:15:34 UTC; merkle
+Packaged: 2019-11-19 17:51:51 UTC; merkle
 Author: Edgar Merkle [aut, cre] (<https://orcid.org/0000-0001-7158-0653>),
   Yves Rosseel [aut],
   Ben Goodrich [aut],
@@ -51,4 +51,4 @@ Author: Edgar Merkle [aut, cre] (<https://orcid.org/0000-0001-7158-0653>),
   Rens van de Schoot [ctb] (R/ctr_bayes_fit.R)
 Maintainer: Edgar Merkle <merklee@missouri.edu>
 Repository: CRAN
-Date/Publication: 2019-09-27 19:00:02 UTC
+Date/Publication: 2019-11-19 19:20:02 UTC
