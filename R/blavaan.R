@@ -103,7 +103,9 @@ blavaan <- function(...,  # default lavaan arguments
       dotdotdot <- dotdotdot[-cplocs]; dotNames <- dotNames[-cplocs]
     }
     ## cannot use lavaan inits with fa priors; FIXME?
-    if(cp == "fa" & inits %in% c("simple", "default")) inits <- "jags"
+    if(cp == "fa" & is.character(inits)){
+      if(inits[1] %in% c("simple", "default")) inits <- "jags"
+    }
     if(cp == "fa" & grepl("stan", target)){
       cat("blavaan NOTE: fa priors are not available with stan. srs priors will be used. \n")
     }
@@ -181,9 +183,8 @@ blavaan <- function(...,  # default lavaan arguments
 
     mfj <- list(burnin = burnin, sample = sample, adapt = adapt)
 
-    # now based on effective sample size
-    #if(mfj$sample*n.chains/5 < 1000) warning("blavaan WARNING: small sample drawn, proceed with caution.\n")
-    
+    if(target == "stancond") cat("\nblavaan NOTE: target='stancond' is experimental and may not be fully functional\n")
+  
     if(convergence == "auto"){
         names(mfj) <- c("startburnin", "startsample", "adapt")
     }
@@ -323,12 +324,12 @@ blavaan <- function(...,  # default lavaan arguments
 
             ## NB truncation doesn't work well in stan. instead
             ##    use generated quantities after the fact.
-            trunop <- ifelse(target == "jags", " T(0,)", "")
-            for(i in 1:length(fload)){
-                if(LAV@ParTable$prior[fload[i]] != ""){
-                    LAV@ParTable$prior[fload[i]] <- paste(LAV@ParTable$prior[fload[i]], trunop, sep="")
-                } else {
-                    LAV@ParTable$prior[fload[i]] <- paste(dp[["lambda"]], trunop, sep="")
+            trunop <- " T(0,)"
+            if(target == "jags"){
+                for(i in 1:length(fload)){
+                    if(LAV@ParTable$prior[fload[i]] != ""){
+                        LAV@ParTable$prior[fload[i]] <- paste(LAV@ParTable$prior[fload[i]], trunop, sep="")
+                    }
                 }
             }
         }
@@ -415,13 +416,22 @@ blavaan <- function(...,  # default lavaan arguments
                                          inits = initsin,
                                          debug = mcdebug),
                                 silent = TRUE)
+            } else if(target == "stancond"){
+                jagtrans <- try(lav2stancond(model = LAV,
+                                             lavdata = lavdata,
+                                             dp = dp, n.chains = n.chains,
+                                             mcmcextra = mcmcextra,
+                                             inits = initsin,
+                                             debug = mcdebug),
+                                silent = TRUE)
             } else {
                 l2s <- try(lav2stanmarg(lavobject = LAV, dp = dp,
                                         n.chains = n.chains,
                                         inits = initsin),
                            silent = TRUE)
                 if(!inherits(l2s, "try-error")){
-                    ldargs <- c(l2s$dat, list(lavpartable = l2s$lavpartable, save_lvs = save.lvs))
+                    ldargs <- c(l2s$dat, list(lavpartable = l2s$lavpartable, dumlv = l2s$dumlv,
+                                              save_lvs = save.lvs))
                     lavpartable$prior <- l2s$lavpartable$prior
                     jagtrans <- try(do.call("stanmarg_data", ldargs), silent = TRUE)
 
@@ -495,7 +505,7 @@ blavaan <- function(...,  # default lavaan arguments
               rjarg <- with(jagtrans, list(model = paste(model),
                                            monitor = sampparms, 
                                            data = data, inits = inits))
-            } else if(target == "stanclassic"){
+            } else if(target %in% c("stanclassic", "stancond")){
               rjarg <- with(jagtrans, list(model_code = model,
                                            pars = sampparms,
                                            data = data,
@@ -520,7 +530,7 @@ blavaan <- function(...,  # default lavaan arguments
             if(jag.do.fit){
                 if(target == "jags"){
                     rjcall <- "run.jags"
-                } else if(target == "stanclassic"){
+                } else if(target %in% c("stanclassic", "stancond")){
                     cat("Compiling stan model...")
                     rjcall <- "stan"
                 } else {
@@ -574,7 +584,7 @@ blavaan <- function(...,  # default lavaan arguments
         if(target == "jags"){
           parests <- coeffun(lavpartable, jagtrans$pxpartable, res)
           stansumm <- NA
-        } else if(target == "stanclassic"){
+        } else if(target %in% c("stanclassic", "stancond")){
           parests <- coeffun_stan(lavpartable, jagtrans$pxpartable,
                                   res)
           stansumm <- parests$stansumm
@@ -618,7 +628,7 @@ blavaan <- function(...,  # default lavaan arguments
             attr(x, "fx") <- get_ll(lavmodel = lavmodel, lavpartable = lavpartable,
                                     lavsamplestats = lavsamplestats, lavoptions = lavoptions,
                                     lavcache = lavcache, lavdata = lavdata)[1]
-            if(save.lvs) {
+            if(save.lvs & jag.do.fit) {
                 if(target == "jags"){
                     fullpmeans <- summary(make_mcmc(res))[[1]][,"Mean"]
                 } else {
@@ -628,6 +638,8 @@ blavaan <- function(...,  # default lavaan arguments
                               lavsamplestats = lavsamplestats, lavoptions = lavoptions,
                               lavcache = lavcache, lavdata = lavdata,
                               lavobject = LAV, conditional = TRUE)[1]
+            } else {
+                cfx <- NULL
             }
         } else {
             attr(x, "fx") <- as.numeric(NA)

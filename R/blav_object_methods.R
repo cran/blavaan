@@ -309,9 +309,9 @@ function(object, header       = TRUE,
         #names(PE)[penames == "est"] <- "Post.Mean"
         #PE$est <- PE$Post.Mean
         names(PE)[penames == "se"] <- "Post.SD"
-        names(PE)[penames == "ci.lower"] <- "HPD.025"
-        names(PE)[penames == "ci.upper"] <- "HPD.975"
-        names(PE)[penames == "psrf"] <- "PSRF"
+        names(PE)[penames == "ci.lower"] <- "pi.lower"
+        names(PE)[penames == "ci.upper"] <- "pi.upper"
+        names(PE)[penames == "psrf"] <- "Rhat"
 
         print(PE, nd = nd)
     } # parameter estimates
@@ -333,14 +333,14 @@ plot.blavaan <- function(x, pars=NULL, plot.type="trace", showplot=TRUE, ...){
         pars <- x@ParTable$free
         pars <- pars[pars > 0 & !is.na(pars)]
     }
-    samps <- as.array(blavInspect(x, 'mcmc'))
+    samps <- as.array(blavInspect(x, 'mcmc'), drop = FALSE)
 
     if(x@Options$target != "stan"){
         parnames <- x@ParTable$pxnames[match(pars, x@ParTable$free)]
-        samps <- samps[, match(parnames, colnames(samps)), ]
+        samps <- samps[, match(parnames, colnames(samps)), , drop = FALSE]
     } else {
         parnums <- x@ParTable$stanpnum[match(pars, x@ParTable$free)]
-        samps <- samps[, parnums, ]
+        samps <- samps[, parnums, , drop = FALSE]
     }
     if(blavInspect(x, 'ngroups') == 1L){
         colnames(samps) <- with(x@ParTable, paste0(lhs,op,rhs)[match(pars, free)])

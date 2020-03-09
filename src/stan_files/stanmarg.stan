@@ -205,6 +205,8 @@ data {
   real<lower=0> theta_sd_shape[len_thet_sd];
   real<lower=0> theta_sd_rate[len_thet_sd];
   int<lower=-2, upper=2> theta_pow;
+  int<lower=0> w5use;
+  int<lower=1> usethet[w5use];
 
   // same things but for diag(Theta_x)
   int<lower=0> len_w6;
@@ -251,7 +253,11 @@ data {
   real<lower=0> psi_sd_shape[len_psi_sd];
   real<lower=0> psi_sd_rate[len_psi_sd];
   int<lower=-2,upper=2> psi_pow;
-
+  int<lower=0> w9use;
+  int<lower=1> usepsi[w9use];
+  int<lower=0> w9no;
+  int<lower=1> nopsi[w9no];
+  
   // same things but for Psi_r
   int<lower=0> len_w10;
   int<lower=0> wg10[Ng];
@@ -642,7 +648,7 @@ model { // N.B.: things declared in the model block do not get saved in the outp
       top_right[g] = Lambda_y_A[g] * Gamma[g] * PHI[g] * Lambda_xt[g];        // top right block of Sigma    
       Sigma[g, 1:p, (p + 1):(p + q)] = top_right[g];
       Sigma[g, (p + 1):(p + q), 1:p] = transpose(top_right[g]);
-      Sigma[g, (p + 1):(p + q), (p + 1):(p + q)] = quad_form(PHI[g], Lambda_xt[g]);
+      Sigma[g, (p + 1):(p + q), (p + 1):(p + q)] = quad_form_sym(PHI[g], Lambda_xt[g]);
       Sigma[g, (p + 1):(p + q), (p + 1):(p + q)] += quad_form_sym(Theta_x_r[g], Theta_x_sd[g]);
 
       if (n > 0) {
@@ -653,11 +659,11 @@ model { // N.B.: things declared in the model block do not get saved in the outp
     GPG[g] = diag_matrix(rep_vector(0, m));
     if (p > 0) {
       if (q > 0) {
-	GPG[g] = quad_form(PHI[g], transpose(Gamma[g]));
+	GPG[g] = quad_form_sym(PHI[g], transpose(Gamma[g]));
       }
       Sigma[g, 1:p, 1:p] = quad_form_sym(Theta_r[g], Theta_sd[g]);
       if (m > 0) {
-        Sigma[g, 1:p, 1:p] += quad_form(GPG[g] + Psi[g], transpose(Lambda_y_A[g]));
+        Sigma[g, 1:p, 1:p] += quad_form_sym(GPG[g] + Psi[g], transpose(Lambda_y_A[g]));
 	Mu[g, 1:p] += to_vector(Lambda_y_A[g] * Alpha[g, 1:m, 1]);
       }
       if (n > 0) {
@@ -696,17 +702,29 @@ model { // N.B.: things declared in the model block do not get saved in the outp
 
   /* transform sd parameters to var or prec, depending on
      what the user wants. */
-  for (i in 1:len_free[5]) {
-    Theta_pri[i] = Theta_sd_free[i]^(theta_pow);
+  Theta_pri = Theta_sd_free;
+  if (len_free[5] > 0 && theta_pow != 1) {
+    for (i in 1:len_free[5]) {
+      Theta_pri[i] = Theta_sd_free[i]^(theta_pow);
+    }
   }
-  for (i in 1:len_free[6]) {
-    Theta_x_pri[i] = Theta_x_sd_free[i]^(theta_x_pow);
+  Theta_x_pri = Theta_x_sd_free;
+  if (len_free[6] > 0 && theta_x_pow != 1) {
+    for (i in 1:len_free[6]) {
+      Theta_x_pri[i] = Theta_x_sd_free[i]^(theta_x_pow);
+    }
   }
-  for (i in 1:len_free[9]) {
-    Psi_pri[i] = Psi_sd_free[i]^(psi_pow);
+  Psi_pri = Psi_sd_free;
+  if (len_free[9] > 0 && psi_pow != 1) {
+    for (i in 1:len_free[9]) {
+      Psi_pri[i] = Psi_sd_free[i]^(psi_pow);
+    }
   }
-  for (i in 1:len_free[11]) {
-    Phi_pri[i] = Phi_sd_free[i]^(phi_pow);
+  Phi_pri = Phi_sd_free;
+  if (len_free[11] > 0 && phi_pow != 1) {
+    for (i in 1:len_free[11]) {    
+      Phi_pri[i] = Phi_sd_free[i]^(phi_pow);
+    }
   }
 
   target += gamma_lpdf(Theta_pri | theta_sd_shape, theta_sd_rate);
@@ -722,7 +740,7 @@ model { // N.B.: things declared in the model block do not get saved in the outp
 generated quantities { // these matrices are saved in the output but do not figure into the likelihood
   // see https://books.google.com/books?id=9AC-s50RjacC&lpg=PP1&dq=LISREL&pg=PA34#v=onepage&q=LISREL&f=false
 
-  matrix[Ntot, save_lvs ? m + n : 0] eta;
+  matrix[Ntot, save_lvs ? w9use + w9no : 0] eta;
   // matrix[Ntot, has_data ? m : 0] eta;
   // matrix[Ntot, has_data ? n : 0] xi;
 
@@ -816,7 +834,7 @@ generated quantities { // these matrices are saved in the output but do not figu
   Ph_var = Phi_sd_free .* Phi_sd_free;
 
   // now use matrices with sign fixes to deal with lvs
-  if (save_lvs) { // all matrices defined in this local block are not saved in the output
+  if (save_lvs && (m + n) > 0) { // all matrices defined in this local block are not saved in the output
     matrix[m, m] A;
     matrix[m, n] total_xi_eta;
     matrix[m, n] indirect_xi_eta;
@@ -845,7 +863,7 @@ generated quantities { // these matrices are saved in the output but do not figu
     matrix[m + n, m + n] bottom_right;
     
     matrix[p + q, p + q] precision;
-    matrix[m + n, m + n] L;
+    matrix[w9use, w9use] L;
     matrix[m + n, p + q] beta;
     vector[m + n] lvmean;
     vector[p + q] ovmean[Ng];
@@ -876,7 +894,7 @@ generated quantities { // these matrices are saved in the output but do not figu
     for (mm in 1:Np) {
       grpidx = grpnum[mm];
 
-      A = mdivide_left_tri_low(I - Bet[grpidx], I); // = (I - B)^{-1}
+      A = mdivide_left(I - Bet[grpidx], I); // = (I - B)^{-1}
       total_eta_eta = A - I;
       indirect_eta_eta = total_eta_eta - Bet[grpidx];
       total_eta_y = L_Y[grpidx] * A;
@@ -888,7 +906,7 @@ generated quantities { // these matrices are saved in the output but do not figu
 	total_xi_y = total_eta_y * Gam[grpidx];
       }
 
-      Psi_star = multiply_lower_tri_self_transpose(A * Psi[grpidx]); // original was: L_Psi);
+      Psi_star = quad_form_sym(PS[grpidx], transpose(A)); // original was: L_Psi);
       Pi_t = transpose(total_xi_eta);
       L_Yt = transpose(L_Y[grpidx]);
       L_Xt = transpose(L_X[grpidx]);
@@ -923,16 +941,19 @@ generated quantities { // these matrices are saved in the output but do not figu
 
       // FIXME?? what if obsidx also extends to x variables?
       obsidx = Obsvar[mm, ];
-      precision[1:Nobs[mm], 1:Nobs[mm]] = inverse_spd(top_left[obsidx[1:Nobs[mm]], obsidx[1:Nobs[mm]]]);
-      L = cholesky_decompose(bottom_right - quad_form(precision[1:Nobs[mm], 1:Nobs[mm]], transpose(corner[, obsidx[1:Nobs[mm]]])));
-      beta[, 1:Nobs[mm]] = corner[, obsidx[1:Nobs[mm]]] * precision[1:Nobs[mm], 1:Nobs[mm]];
+      precision = inverse_spd(top_left);
+      L = cholesky_decompose(bottom_right[usepsi,usepsi] - quad_form_sym(precision, transpose(corner))[usepsi,usepsi]);
+      beta[, 1:Nobs[mm]] = corner[, obsidx[1:Nobs[mm]]] * precision[obsidx[1:Nobs[mm]], obsidx[1:Nobs[mm]]];
 
       r1 = startrow[mm];
       r2 = endrow[mm];
 
       for (idx in r1:r2){
 	lvmean = Alpha[grpidx, , 1] + beta[, 1:Nobs[mm]] * (YX[idx, 1:Nobs[mm]] - ovmean[grpidx, obsidx[1:Nobs[mm]]]);
-	eta[idx,] = transpose(multi_normal_cholesky_rng(lvmean, L));
+	eta[idx,usepsi] = transpose(multi_normal_cholesky_rng(lvmean[usepsi], L));
+	if (w9no > 0) {
+	  eta[idx,nopsi] = eta[idx,usepsi] * transpose(A[nopsi,usepsi]);
+	}
       }
     }
   }

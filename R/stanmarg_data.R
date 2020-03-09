@@ -65,8 +65,8 @@ group_sparse_skeleton <- function(skeleton) {
 format_priors <- function(lavpartable, mat) {
   ## parameter matrices are filled in by row, so need to make
   ## sure we get parameters in the right order!
-  lavpartable <- lavpartable[order(lavpartable$col),]
-  
+  lavpartable <- lavpartable[order(lavpartable$group, lavpartable$col, lavpartable$row),]
+
   if (grepl("var", mat)) {
     mat <- gsub("var", "", mat)
     prisel <- lavpartable$row == lavpartable$col
@@ -191,6 +191,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, N, Ng, grpnum, # data
                           lam_y_sign, lam_x_sign, # sign constraint matrices
                           gam_sign, b_sign, psi_r_sign, phi_r_sign,
                           lavpartable = NULL, # for priors
+                          dumlv = NULL, # for sampling lvs
                           ...) {
   
   dat <- list()
@@ -288,7 +289,11 @@ stanmarg_data <- function(YX = NULL, S = NULL, N, Ng, grpnum, # data
   dat$u5 <- tmpres$u
   dat$wg5 <- array(tmpres$g_len, length(tmpres$g_len))
   dat$w5skel <- w5skel
-
+  ## for lv sampling
+  usethet <- array(which(diag(as.matrix(Theta_skeleton[1,,])) != 0))
+  dat$w5use <- length(usethet)
+  dat$usethet <- usethet
+  
   dThetx <- Theta_x_skeleton
   for (g in 1:Ng) {
     tmpmat <- as.matrix(dThetx[g,,])
@@ -332,7 +337,17 @@ stanmarg_data <- function(YX = NULL, S = NULL, N, Ng, grpnum, # data
   dat$u9 <- tmpres$u
   dat$wg9 <- array(tmpres$g_len, length(tmpres$g_len))
   dat$w9skel <- w9skel
-
+  ## for lv sampling
+  usepsi <- useorig <- array(which(diag(as.matrix(Psi_skeleton[1,,])) != 0))
+  if (length(dumlv) > 0) {
+    dums <- match(dumlv, usepsi)
+    usepsi <- array(usepsi[-dums[!is.na(dums)]])
+  }
+  dat$w9use <- length(usepsi)
+  dat$usepsi <- usepsi
+  dat$nopsi <- array((1:dim(Psi_skeleton)[2])[-useorig])
+  dat$w9no <- length(dat$nopsi)
+  
   tmpres <- group_sparse_skeleton(Psi_r_skeleton)
   dat$len_w10 <- max(tmpres$g_len)
   dat$w10 <- tmpres$w

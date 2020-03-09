@@ -1,4 +1,4 @@
-lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra = "", inits = "prior", debug = FALSE) {
+lav2stancond <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra = "", inits = "prior", noncent = TRUE, debug = FALSE) {
   ## lots of code is taken from lav_export_bugs.R
 
   if(inherits(model, "lavaan")){
@@ -6,7 +6,7 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
   } else {
     stop("blavaan ERROR: model must be class lavaan")
   }
-  
+
   eqop <- "="
   commop <- "// "
   eolop <- ";"
@@ -185,8 +185,15 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
     tmppsi <- tmppsi[lower.tri(tmppsi)]
     if(all(tmppsi == 0)) diagpsi <- 1L
   }
-  fullbeta <- 1L
 
+  diagtheta <- 0L
+  if("theta" %in% names(parmattable[[1]])){
+    tmptheta <- parmattable[[1]]$theta
+    tmptheta <- tmptheta[lower.tri(tmptheta)]
+    if(all(tmptheta == 0)) diagtheta <- 1L
+  }
+
+  fullbeta <- 1L
   if("beta" %in% names(parmattable[[1]])){
     tmpbeta <- parmattable[[1]]$beta
     if(all(tmpbeta[lower.tri(tmpbeta)] == 0) |
@@ -266,12 +273,6 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
                      nlrho, "] lvrhofree;\n")
   }
 
-  if(nlvno0 > 0){
-    parblk <- paste0(parblk, t1, "matrix[N, ", nlvno0, "] etavec",
-                     eolop, "\n")
-  }
-  parblk <- paste0(parblk, "}\n\n")                     
-
   psi.ov <- which(partable$lhs %in% ov.names &
                   partable$op == "~~" &
                   partable$lhs == partable$rhs &
@@ -282,6 +283,8 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
   if(n.psi.ov > 0){
     psi.ov.names <- partable$lhs[psi.ov]
     thet.ov.names <- ov.names[!(ov.names %in% psi.ov.names)]
+    cat("blavaan NOTE: Using a centered parameterization due to the model representation (ovs in psi).\nThis is not a problem, but noncentered would be used otherwise.\n\n")
+    noncent <- FALSE
   } else {
     psi.ov.names <- ""
     thet.ov.names <- ov.names
@@ -334,6 +337,11 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
     lvindall <- regind
   }
 
+  if(nlvno0 > 0){
+    parblk <- paste0(parblk, t1, "vector[", nlvno0, "] etafree[N]", eolop, "\n")
+  }
+  parblk <- paste0(parblk, "}\n\n")                     
+  
   ## missingness of ovs split by whether or not they appear
   ## in psi
   missflag <- FALSE
@@ -352,82 +360,140 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
   TXT <- paste0(TXT, t1, "for(i in 1:N) {\n")
 
   if(ny > 0){
-    if(missflag){
-      TXT <- paste0(TXT, t2,
-                    "segment(y[i], 1, nseen[i]) ~ ",
-                    "multi_normal_cholesky(",
-                    "to_vector(mu[i])[obsvar[i,1:nseen[i]]],",
-                    "thetld[g[i],obsvar[i,1:nseen[i]],",
-                    "obsvar[i,1:nseen[i]]]);\n")
+    TXT <- paste0(TXT, t2, "target += ")
+
+    if(diagtheta){
+      TXT <- paste0(TXT, "normal_lpdf")
     } else {
-      TXT <- paste0(TXT, t2,
-                    "y[i] ~ multi_normal_cholesky(",
-                    "to_vector(mu[i,1:", (nov - n.psi.ov),
-                    "]), thetld[g[i]]);\n")
+      TXT <- paste0(TXT, "multi_normal_cholesky_lpdf")
+    }
+    
+    if(missflag){
+      TXT <- paste0(TXT, "(segment(y[i], 1, nseen[i]) | ",
+                    "to_vector(mu[i])[obsvar[i,1:nseen[i]]],")
+      if(diagtheta){
+        TXT <- paste0(TXT, " diagonal(thetld[g[i],obsvar[i,1:nseen[i]],",
+                      "obsvar[i,1:nseen[i]]]));\n")
+      } else {
+        TXT <- paste0(TXT, " thetld[g[i],obsvar[i,1:nseen[i]],",
+                      "obsvar[i,1:nseen[i]]]);\n")
+      }
+    } else {
+      TXT <- paste0(TXT, "(y[i] | to_vector(mu[i,1:", (nov - n.psi.ov), "]),")
+      if(diagtheta){
+        TXT <- paste0(TXT, " diagonal(thetld[g[i]]));\n")
+      } else {
+        TXT <- paste0(TXT, " thetld[g[i]]);\n")
+      }
     }
   }
 
+  if(nlvno0 > 0 & noncent){
+    TXT <- paste0(TXT, t2, "target += std_normal_lpdf(etafree[i]);\n")
+  }
+  if(length(lvindall) > 0 & !noncent){
+    TXT <- paste0(TXT, t2, "target += multi_normal_cholesky_lpdf(eta[i,lvind] | mueta[i], psild[g[i],lvind,lvind]);\n")
+  }
 
   TXT <- paste0(TXT, t1, "}\n\n")
-
-  if((nlv + n.psi.ov) > 0){
-    TXT <- paste0(TXT, t1, etaname, " ~ ")
-
-    if(miss.psi){
-      TXT <- paste0(TXT, "sem_lv_missing_lpdf(")
-    } else {
-      TXT <- paste0(TXT, "sem_lv_lpdf(")
-    }
-
-    TXT <- paste0(TXT, "alpha, ", betaname, ", ", psiname, ", ")
-    TXT <- paste0(TXT, ifelse(gamind, "gamma", betaname), ", ")
-    TXT <- paste0(TXT, as.numeric(gamind), ", meanx, ")
-    TXT <- paste0(TXT, "g, ", (nlv + n.psi.ov), ", N, ",
-                  ngroups, ", ", diagpsi, ", ", fullbeta, ", ", nlv,
-                  ", etaind, ", nlvno0)
-    if(miss.psi){
-      TXT <- paste0(TXT, ", nseenx, obsvarx, obspatt, gpatt")
-    }
-    TXT <- paste0(TXT, ");\n")
-  }
-
+  
   ## for missing=="fi", to model variables on rhs of regression
   ovreg <- unique(regressions$rhs[regressions$rhs %in% ov.names])
   ovcol <- which(ov.names %in% ovreg)
 
-  if(nlvno0 < nlv){
-    if(nlvno0 > 0){
-      TPS <- paste0(TPS, t1, "for(i in 1:N) {\n")
-      TPS <- paste0(TPS, t2, etaname, "[i,etaind] = etavec[i];\n")
-      TPS <- paste0(TPS, t1, "}\n")
+  ## add cholesky decomp of theta matrix (and psi for nov.x);
+  ## non-eXo ov vars sometimes show up in psi, so handle that as well.  
+  TPS <- paste0(TPS, t1, "for(j in 1:", ngroups, "){\n")
+  if(any(partable$mat == "theta")){
+    if(n.psi.ov > 0){
+      for(i in 1:length(yind)){
+        thidx <- partable[partable$mat == "theta" & partable$row == yind[i],,drop=FALSE]
+        if(length(yind) > 0){
+          for(j in 1:nrow(thidx)){
+            ycol <- which(yind == thidx$col[j])
+            TPS <- paste0(TPS, t2, "thetld[j,", i, ",", ycol, "] = ",
+                          "theta[", yind[i], ",", thidx$col[j], ",j];\n")
+          }
+        }
+      }
+     TPS <- paste0(TPS, t2, "thetld[j] = fill_lower(thetld[j]);\n")
+    } else {
+      TPS <- paste0(TPS, t2, "thetld[j] = fill_lower(to_matrix(",
+                    "theta[,,j]));\n")
+    }
+    TPS <- paste0(TPS, t2, "thetld[j] = cholesky_decompose(",
+                  "thetld[j]);\n")
+  }
+
+  TPS <- paste0(TPS, t2, "ibinv[j] = inverse(diag_matrix(rep_vector(1,",
+                nlv + n.psi.ov, ")) - to_matrix(", betaname, "[,,j]));\n")
+
+  if(any(grepl("psi", partable$mat))){
+    if(((nlv + n.psi.ov) > nlv) | (nlvno0 < nlv)){
+      TPS <- paste0(TPS, t2, "psild[j] = to_matrix(", psiname, "[,,j]);\n")
+      TPS <- paste0(TPS, t2, "psild[j] = fill_lower(psild[j]);\n")
+      TPS <- paste0(TPS, t2, "psild[j,lvind,lvind] = ibinv[j,lvind,] * psild[j] * ibinv[j,lvind,]';\n")
+
+      TPS <- paste0(TPS, t2, "psild[j,lvind,lvind] = cholesky_decompose(",
+                    "psild[j,lvind,lvind]);\n")
+    } else {
+      TPS <- paste0(TPS, t2, "psild[j] = fill_lower(to_matrix(",
+                    psiname, "[,,j]));\n")
+      TPS <- paste0(TPS, t2, "psild[j] = cholesky_decompose(psild[j]);\n")
     }
 
-    TPS <- paste0(TPS, t1, "mueta = sem_mean_eta(alpha, ", etaname,
-                  ", ", betaname, ", ",
-                  ifelse(gamind, "gamma", betaname),
-                  ", g, ", (nlv + n.psi.ov),
-                  ", N, ", ngroups, ", ", nlv, ", lvind, eta0ind);\n")
   }
+
+  ## if(dumov & !model@Options$fixed.x &
+  ##    !all(parmattable$lambda == diag(nrow(parmattable$lambda)))){
+  ##   TPS <- paste0(TPS, t2, "alpha[dummylv,1,j] = to_array_1d(inverse((to_matrix(lambda", ifelse(std.lv, "UNC", ""), "[,,j]) * inverse(diag_matrix(rep_vector(1.0, ", (nlv + n.psi.ov), ")) - to_matrix(beta", ifelse(std.lv, "UNC", ""), "[,,j])))[dummyov,dummylv]) * to_vector(to_array_1d(alpha[dummylv,1,j])")
+  ##   TPS <- paste0(TPS, "));\n")
+  ## }
   
+  TPS <- paste0(TPS, t1, "}\n")
+    
   ## Define mean of each observed variable
   ## This assumes that the data matrix passed to jags
   ## is ordered in the same way as ov.names.nox.
   ## data would be cbind(ov.names.nox, ov.names.x)
   TPS <- paste(TPS, t1, commop, "mu definitions\n", t1,
                "for(i in 1:N) {\n", sep="")
-  
-  if(nlvno0 < nlv){
-    #TPS <- paste0(TPS, t2, "eta[i,etaind] = etavec[i];\n")
-    TPS <- paste0(TPS, t2, etaname, "[i,eta0ind] = mueta[i,eta0ind]';\n")
-  } else if(nlv > 0){
-    TPS <- paste0(TPS, t2, etaname, "[i,1:", nlv, "] = etavec[i];\n")
-  }
 
-  if(n.psi.ov > 0){
+  if(!noncent & n.psi.ov > 0){
     TPS <- paste0(TPS, t2, etaname, "[i,", (nlv+1), ":", (nlv + n.psi.ov),
                   "] = x[i]';\n")
   }
-  
+
+  if(nlvno0 < nlv){
+    ## some real lvs and some with variances fixed to 0
+    TPS <- paste0(TPS, t2, etaname, "[i,etaind] = ")
+    if(noncent){
+      TPS <- paste0(TPS, "transpose(ibinv[g[i],lvind,] * to_vector(alpha[,1,g[i]]) + ")
+      TPS <- paste0(TPS, "psild[g[i],lvind,lvind] * ")
+    }
+    TPS <- paste0(TPS, "etafree[i]", ifelse(noncent[1], ")", "'"), ";\n");
+
+    if(!noncent){
+      ## mean for centered parameterization
+      TPS <- paste0(TPS, t2, "mueta[i] = ibinv[g[i],lvind,] * to_vector(alpha[,1,g[i]]);\n")
+    }
+    
+    TPS <- paste0(TPS, t2, etaname, "[i,eta0ind] = transpose(ibinv[g[i],eta0ind,eta0ind] * to_vector(alpha[eta0ind,1,g[i]]) + ibinv[g[i],eta0ind,regind] * ", etaname, "[i,regind]');\n")
+  } else if(nlv > 0){
+    ## all real lvs
+    TPS <- paste0(TPS, t2, etaname, "[i,etaind] = ")
+    if(noncent){
+      TPS <- paste0(TPS, "transpose(ibinv[g[i],lvind,] * to_vector(alpha[,1,g[i]]) + ")
+      TPS <- paste0(TPS, "psild[g[i],lvind,lvind] * ")
+    }
+    TPS <- paste0(TPS, "etafree[i]", ifelse(noncent[1], ")", "'"), ";\n");
+    if(!noncent){
+      TPS <- paste0(TPS, t2, "mueta[i] = ibinv[g[i],lvind,] * to_vector(alpha[,1,g[i]]);\n")
+    }
+  } else if(length(lvindall) > 0 & !noncent){
+    TPS <- paste0(TPS, t2, "mueta[i]= ibinv[g[i],lvind,] * to_vector(alpha[,1,g[i]]);\n")
+  }
+
   if(ny > 0) {
     for(i in 1:ny) {
       ov.idx <- i
@@ -524,16 +590,20 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
   out <- list(model = out, inits = NA)
 
   ## Initial values
-  inits <- set_inits_stan(partable, nfree, n.chains, inits)
+  inits <- set_inits_stan(partable, nfree, n.chains, inits,
+                          sum(unlist(lavdata@nobs)), nlvno0)
   out$inits <- inits
 
   ## Now add data if we have it
   datablk <- paste0("data{\n", t1, "int N;\n", t1, "int g[N];\n",
                     t1, "int lvind[", length(lvindall), "];\n",
                     t1, "int etaind[", length(etaind), "];\n")
-  if(length(lv0.idx) > 0){
-    datablk <- paste0(datablk, t1, "int eta0ind[", length(lv0.idx),
+  if((length(lv0.idx) + length(lv.dummy.idx)) > 0){
+    datablk <- paste0(datablk, t1, "int eta0ind[", length(lv0.idx) + length(lv.dummy.idx),
                       "];\n")
+  }
+  if(length(regind) > 0){
+    datablk <- paste0(datablk, t1, "int regind[", length(regind), "];\n")
   }
 
   ## NB: if meanx is empty, we won't use it. so just
@@ -549,14 +619,6 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
                     ncol(smean), "];\n", t1,
                     "real meanx[", nrow(meanx), ",", ncol(meanx),
                     "];\n")
-
-  if(length(ov.dummy.idx) == 0){
-    ov.dummy.idx <- rep(0,2)
-    lv.dummy.idx <- rep(0,2)
-  }
-  datablk <- paste0(datablk, t1, "int dummyov[",
-                    length(ov.dummy.idx), "];\n", t1,
-                    "int dummylv[", length(lv.dummy.idx), "];\n")
 
   if(!is.null(lavdata) | inherits(model, "lavaan")){
     if(inherits(model, "lavaan")) lavdata <- model@Data
@@ -738,12 +800,10 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
     standata <- list(g=g, N=ntot, regind=array(regind),
                      exoind=array(exoind), lvind=array(lvindall),
                      etaind=array(etaind))
-    if(length(lv0.idx) > 0){
-      standata <- c(standata, list(eta0ind=array(lv0.idx)))
+    if((length(lv0.idx) + length(lv.dummy.idx)) > 0){
+      standata <- c(standata, list(eta0ind=array(c(lv0.idx, lv.dummy.idx))))
     }
-    standata <- c(standata, list(dummyov=array(ov.dummy.idx),
-                                 dummylv=array(lv.dummy.idx),
-                                 sampmean=array(smean, dim=c(nrow(smean), ncol(smean))),
+    standata <- c(standata, list(sampmean=array(smean, dim=c(nrow(smean), ncol(smean))),
                                  meanx=array(meanx, dim=c(nrow(meanx), ncol(meanx)))))
 
     if(ny > 0) standata <- c(standata, list(y=y))
@@ -819,16 +879,16 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
 
     pmats <- vector("list", length(matrows))
     for(i in 1:length(pmats)){
-        if(names(matrows)[i] == "lambda"){
-            tmpmat <- parmattable[[1]]$lambda
-            pmats[[i]] <- array(tmpmat,
-                                c(nrow(tmpmat), ncol(tmpmat), ngroups))
-        } else {
-            pmats[[i]] <- array(0, c(matrows[i], matcols[i], ngroups))
-        }
+      if(names(matrows)[i] == "lambda"){
+        tmpmat <- parmattable[[1]]$lambda
+        pmats[[i]] <- array(tmpmat,
+                            c(nrow(tmpmat), ncol(tmpmat), ngroups))
+      } else {
+        pmats[[i]] <- array(0, c(matrows[i], matcols[i], ngroups))
+      }
     }
     names(pmats) <- names(matrows)
-
+    
     ## monitored parameters
     monitors <- with(partable[partable$mat != "",], unique(mat))
     monitors[monitors=="lambdaUNC"] <- "lambda"
@@ -870,6 +930,15 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
 
         tmpname <- "psiUNC"
       }
+
+      if(grepl("psi", tmpname)){
+        tpdecs <- paste0(tpdecs, t1, "matrix[", (nlv + n.psi.ov), ",",
+                         (nlv + n.psi.ov), "] psild[", tmpdim[3],
+                         "];\n")
+        if(!noncent & length(lvindall) > 0){
+          tpdecs <- paste0(tpdecs, t1, "vector[", length(lvindall), "] mueta[N];\n")
+        }
+      }
       
       datdecs <- paste0(datdecs, t1, "real ",
                         names(pmats)[i], "[", tmpdim[1],
@@ -887,6 +956,18 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
       tpeqs <- paste0(tpeqs, t1, tmpname, " = ",
                       names(pmats)[i], ";\n")
     }
+
+    if("theta" %in% names(matrows) & ny > 0){
+      pmats <- c(pmats, list(thetldframe = array(0, c(ngroups, ny, ny))))
+      datdecs <- paste0(datdecs, t1, "matrix[", ny, ",", ny, "] thetldframe[", ngroups,
+                        "];\n")
+      tpeqs <- paste0(tpeqs, t1, "thetld = thetldframe;\n")
+    }
+    
+    ## beta always declared
+    tpdecs <- paste0(tpdecs, t1, "matrix[", nlvno0, ",",
+                     nlvno0, "] ibinv[", tmpdim[3],
+                     "];\n")
     tpdecs <- paste0(tpdecs, t1, "real mu[N,", nov, "];\n")
     GQ <- paste0(GQ, gqeqs, "\n")
 
@@ -899,10 +980,6 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
 
     if(nlv + n.psi.ov > 0){
       tpdecs <- paste0(tpdecs, t1, "matrix[N,", (nlv + n.psi.ov), "] ", etaname, ";\n")
-      if(nlvno0 < nlv){
-        tpdecs <- paste0(tpdecs, t1, "vector[", (nlv + n.psi.ov),
-                         "] mueta[N];\n")
-      }
       tpdecs <- paste0(tpdecs, "\n", t1, etaname,
                        " = rep_matrix(0, N, ", (nlv + n.psi.ov),
                        ");\n")
@@ -920,33 +997,8 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
                           ",", ngroups, "];\n")
     }
 
-    ## add cholesky decomp of theta matrix (and psi for nov.x);
-    ## non-eXo ov vars sometimes show up in psi, so handle that as well.
     TPS <- paste0(TPS, t1, "}\n\n")
-    TPS <- paste0(TPS, t1, "for(j in 1:", ngroups, "){\n")
-    if(any(partable$mat == "theta")){
-      if(n.psi.ov > 0){
-        for(i in 1:length(yind)){
-          for(j in i:length(yind)){
-            TPS <- paste0(TPS, t2, "thetld[j,", i, ",", j, "] = ",
-                          "theta[", yind[i], ",", yind[j], ",j];\n")
-          }
-        }
-        TPS <- paste0(TPS, t2, "thetld[j] = fill_lower(thetld[j]);\n")
-      } else {
-        TPS <- paste0(TPS, t2, "thetld[j] = fill_lower(to_matrix(",
-                      "theta[,,j]));\n")
-      }
-      TPS <- paste0(TPS, t2, "thetld[j] = cholesky_decompose(",
-                    "thetld[j]);\n")
-    }
-    if(dumov & !model@Options$fixed.x &
-       !all(parmattable$lambda == diag(nrow(parmattable$lambda)))){
-      TPS <- paste0(TPS, t2, "alpha[dummylv,1,j] = to_array_1d(inverse((to_matrix(lambda", ifelse(std.lv, "UNC", ""), "[,,j]) * inverse(diag_matrix(rep_vector(1.0, ", (nlv + n.psi.ov), ")) - to_matrix(beta", ifelse(std.lv, "UNC", ""), "[,,j])))[dummyov,dummylv]) * to_vector(to_array_1d(alpha[dummylv,1,j])")
-      TPS <- paste0(TPS, "));\n")
-    }
-    
-    TPS <- paste0(TPS, t1, "}\n")
+
 
     TPS <- paste0("transformed parameters{\n", tpdecs, "\n",
                   tpeqs, TXT2, "\n\n", TPS,
@@ -1060,7 +1112,7 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
   } # std.lv
 
   funblk <- "functions{\n"
-  if((nlv + n.psi.ov) > 0){
+  if(FALSE){ #(nlv + n.psi.ov) > 0){
     funblk <- paste0(funblk, t1, "#include 'sem_mean.stan' \n")
     if(nlvno0 < nlv){
       funblk <- paste0(funblk, t1, "#include 'sem_mean_eta.stan' \n")
@@ -1101,103 +1153,4 @@ lav2stan <- function(model, lavdata = NULL, dp = NULL, n.chains = 1, mcmcextra =
   out <- c(out, list(monitors = monitors, pxpartable = partable))
 
   out
-}
-
-coeffun_stan <- function(lavpartable, pxpartable, rsob, fun = "mean") {
-  ## Extract posterior means from coda.samples() object.
-  ## rsob is the result of rstan().
-  stanfit <- !is.null(rsob)
-  if(stanfit){
-    rssumm <- rstan::summary(rsob)
-    rsmcmc <- as.array(rsob)
-
-    ## posterior means:
-    if(fun == "mean"){
-      b.est <- rssumm$summary[,"mean"]
-    } else if(fun == "median"){
-      b.est <- rssumm$summary[,"50%"]
-    }
-  }
-
-  pxpartable$pxnames <- with(pxpartable, paste0(mat, "[", row, ",", col, ",",
-                                                group, "]"))
-  
-  ## move "free" parameters from rho to theta
-  rhopars <- grep("rho", pxpartable$mat)
-  if(length(rhopars) > 0){
-    for(i in 1:length(rhopars)){
-      idx <- rhopars[i]
-      matname <- ifelse(pxpartable$mat[idx] == "rho", "theta", "psi")
-      newidx <- which(pxpartable$mat == matname &
-                      pxpartable$row == pxpartable$row[idx] &
-                      pxpartable$col == pxpartable$col[idx] &
-                      pxpartable$group == pxpartable$group[idx])
-
-      tmpfree <- pxpartable$free[idx]
-
-      pxpartable$free[idx] <- 0L
-      pxpartable$free[newidx] <- tmpfree
-    }
-  }
-  lavord <- order(pxpartable$id)
-  pxpartable <- lapply(pxpartable, function(x) x[lavord])
-  
-  ## from stan to partable
-  ## NB: order of parameters in mcmc array differs from order
-  ##     of parameters in summary()
-  pxpartable$stanpnum <- rep(NA, length(pxpartable[[1]]))
-  pxpartable$stansumnum <- rep(NA, length(pxpartable[[1]]))
-  if(stanfit){
-    ptnames <- pxpartable$pxnames
-    cmatch <- match(ptnames, names(b.est), nomatch=0)
-    pxpartable$est[cmatch > 0] <- b.est[cmatch]
-    pxpartable$psrf[cmatch > 0] <- rssumm$summary[cmatch,"Rhat"]
-
-    sdvec <- rssumm$summary[cmatch, "sd"]
-
-    pxpartable$stanpnum <- match(ptnames, names(rsmcmc[1,1,]), nomatch=0)
-    pxpartable$stansumnum <- match(ptnames, rownames(rssumm$summary), nomatch=0)
-    
-    ## vcorr
-    draw_mat <- as.matrix(rsob)
-    cmatch <- match(ptnames[pxpartable$free > 0][order(pxpartable$free[pxpartable$free > 0])], colnames(draw_mat))
-    vcorr <- cor(draw_mat[,cmatch])
-
-    svmatch <- match(colnames(vcorr), names(sdvec), nomatch = 0)
-    sdvec <- sdvec[svmatch]
-  } else {
-    sdvec <- NULL
-    vcorr <- NULL
-    rssumm <- list(summary=NULL)
-  }
-
-  ## now match it all to original partable
-  ptmatch <- match(lavpartable$free[lavpartable$free > 0], pxpartable$free)
-  if("est" %in% names(pxpartable)){
-    ## to handle do.fit = FALSE
-    lavpartable$est[lavpartable$free > 0] <- pxpartable$est[ptmatch]
-  }
-  lavpartable$psrf <- rep(NA, length(lavpartable$free))
-  if(stanfit){
-    lavpartable$psrf[lavpartable$free > 0] <- pxpartable$psrf[ptmatch]
-  }
-  lavpartable$prior[lavpartable$free > 0] <- pxpartable$prior[ptmatch]
-  lavpartable$pxnames[lavpartable$free > 0] <- pxpartable$pxnames[ptmatch]
-  lavpartable$stanpnum[lavpartable$free > 0] <- pxpartable$stanpnum[ptmatch]
-  lavpartable$stansumnum[lavpartable$free > 0] <- pxpartable$stansumnum[ptmatch]
-
-  ## defined variables
-  defmatch <- which(pxpartable$op == ":=")
-  if(length(defmatch) > 0){
-    lavpartable$est[lavpartable$op == ":="] <- pxpartable$est[defmatch]
-    lavpartable$psrf[lavpartable$op == ":="] <- pxpartable$psrf[defmatch]
-    lavpartable$pxnames[lavpartable$op == ":="] <- pxpartable$pxnames[defmatch]
-    lavpartable$stanpnum[lavpartable$op == ":="] <- pxpartable$stanpnum[defmatch]
-    lavpartable$stansumnum[lavpartable$op == ":="] <- pxpartable$stansumnum[defmatch]
-  }
-  
-  list(x = lavpartable$est[lavpartable$free > 0],
-       lavpartable = lavpartable,
-       vcorr = vcorr,
-       sd = sdvec, stansumm = rssumm$summary)
 }

@@ -46,9 +46,12 @@ set_stanpars <- function(TXT2, partable, nfree, dp, lv.names.x){
 
             ## only complex equality constraints and defined parameters;
             ## rhs needs math expression
+            defeq <- partable$op[i] %in% c("==", ":=") &
+                     grepl("\\+|-|/|\\*|\\(|\\)|\\^", partable$rhs[i])
             compeq <- which(partable$lhs == partable$plabel[i] &
                             partable$op %in% c("==", ":=") &
                             grepl("\\+|-|/|\\*|\\(|\\)|\\^", partable$rhs))
+
             ## TODO check for inequality constraints here?
           
             ## start parameter assignment
@@ -94,14 +97,19 @@ set_stanpars <- function(TXT2, partable, nfree, dp, lv.names.x){
                 } else {
                     TXT2 <- paste(TXT2, eqtxt, eolop, sep="")
                 }
-            } else if(length(compeq) > 0){
+            } else if(defeq | length(compeq) > 0){
+                if(length(compeq) == 0) compeq <- i
                 ## constraints with one parameter label on lhs
                 ## FIXME? cannot handle, e.g., b1 + b2 == 2
                 ## see lav_partable_constraints.R
                 rhsvars <- all.vars(parse(file="",
                                           text=partable$rhs[compeq]))
-                pvnum <- match(rhsvars, partable$plabel)
-
+                if(compeq == i){
+                    pvnum <- match(rhsvars, partable$label)
+                } else {
+                    pvnum <- match(rhsvars, partable$plabel)
+                }
+                    
                 rhstrans <- paste(partable$mat[pvnum], "[", partable$row[pvnum],
                                   ",", partable$col[pvnum], ",", partable$group[pvnum],
                                   "]", sep="")
@@ -129,8 +137,7 @@ set_stanpars <- function(TXT2, partable, nfree, dp, lv.names.x){
                 TXT2 <- paste(TXT2, jageq, eolop, sep="")
             } else {
                 ## needs a prior
-                TXT3 <- paste(TXT3, "\n", t1, partable$mat[i], "free[",
-                              partable$freeparnums[i], "]", sep="")
+                TXT3 <- paste(TXT3, "\n", t1, "target += ", sep="")
                 if(partable$prior[i] == ""){
                     if(partable$mat[i] == "lvrho"){
                         partype <- grep("rho", names(dp))
@@ -166,6 +173,9 @@ set_stanpars <- function(TXT2, partable, nfree, dp, lv.names.x){
                 } else {
                     jagpri <- partable$prior[i]
                 }
+                splpri <- unlist(strsplit(jagpri, "\\("))
+                jagpdist <- paste0(splpri[1], "_lpdf(")
+                jagpparm <- paste(splpri[-1], collapse = "(")
                 if(!vpri & (grepl("theta", partable$mat[i]) | grepl("psi", partable$mat[i]))){
                     sq <- ifelse(spri, "2", "-1")
                     TXT2 <- paste(TXT2, "pow(", partable$mat[i], "free[",
@@ -176,7 +186,9 @@ set_stanpars <- function(TXT2, partable, nfree, dp, lv.names.x){
                                   partable$freeparnums[i],
                                   "]", eolop, sep="")
                 }
-                TXT3 <- paste(TXT3, " ~ ", jagpri, eolop, sep="")
+              
+              TXT3 <- paste0(TXT3, jagpdist, partable$mat[i], "free[",
+                            partable$freeparnums[i], "] | ", jagpparm, eolop)
             }
         }
     }
