@@ -161,6 +161,7 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
                                slotCache = lavcache), silent=TRUE)
         if(!inherits(fit.samp, "try-error")){
             fit.samp@Options$se <- "standard" # for nonnest2
+            fit.samp@test[[1]]$test <- "standard" # for do.fit=FALSE
 
             if(casewise){
                 ll.samp <- llcont(fit.samp)
@@ -597,15 +598,15 @@ fill_eta <- function(postsamp, lavmodel, lavpartable, lavsamplestats, lavdata){
     ngroups <- lavsamplestats@ngroups
 
     eta <- vector("list", ngroups)
-      for(g in 1:ngroups){
-        eta[[g]] <- etamat[lavdata@case.idx[[g]], 1:nlv, drop = FALSE]
+    for(g in 1:ngroups){
+      eta[[g]] <- etamat[lavdata@case.idx[[g]], 1:nlv, drop = FALSE]
 
-        ## fill in eta with dummys, if needed
-        dummyov <- c(lavmodel@ov.x.dummy.ov.idx[[g]], lavmodel@ov.y.dummy.ov.idx[[g]])
-        dummylv <- c(lavmodel@ov.x.dummy.lv.idx[[g]], lavmodel@ov.y.dummy.lv.idx[[g]])
-        if(length(dummyov) > 0){
-          eta[[g]][, dummylv] <- lavdata@X[[g]][, dummyov]
-        }
+      ## fill in eta with dummys, if needed
+      dummyov <- c(lavmodel@ov.x.dummy.ov.idx[[g]], lavmodel@ov.y.dummy.ov.idx[[g]])
+      dummylv <- c(lavmodel@ov.x.dummy.lv.idx[[g]], lavmodel@ov.y.dummy.lv.idx[[g]])
+      if(length(dummyov) > 0){
+        eta[[g]][, dummylv] <- lavdata@X[[g]][, dummyov]
+      }
     }
 
     eta
@@ -679,7 +680,7 @@ make_mcmc <- function(mcmcout){
   lavmcmc
 }
 
-## check that a package is installed via requireNamspace
+## check that a package is installed via requireNamespace
 pkgcheck <- function(x){
   suppressMessages(requireNamespace(x, quietly = TRUE))
 }
@@ -687,3 +688,84 @@ pkgcheck <- function(x){
 pkgload <- function(x){
   try(suppressMessages(attachNamespace(x)), silent = TRUE)
 }
+
+## get plabels that have "wiggle"
+wiglabels <- function(lavpartable, wiggle, wiggle.sd, target = "stan"){
+  ## allowable group.equal names
+  gqnames <- c("loadings", "intercepts", "regressions", "means", "thresholds")
+  gqops <- c("=~", "~1", "~", "~1", "|")
+  lv.names <- unique(unlist(lav_partable_attributes(lavpartable, pta=NULL)$vnames$lv))
+  lpt <- lavpartable[lavpartable$label != "" & !is.na(lavpartable$label),]
+
+  tmplabs <- lapply(wiggle, function(x){
+    if(any(grepl(x, lpt$label))){
+      if(any(lpt$op[lpt$label == x] == "~~")){
+        stop("blavaan ERROR: wiggle cannot be used on variance parameters.")
+      }
+      lpt$plabel[lpt$label == x]
+    } else if(x %in% gqnames){
+      wname <- which(gqnames == x)
+      tmppt <- lpt[lpt$op == gqops[wname],]
+      if(x == 'intercepts'){
+        tmppt <- tmppt[!(tmppt$lhs %in% lv.names),]
+      }
+      if(x == 'means'){
+        tmppt <- tmppt[tmppt$lhs %in% lv.names,]
+      }
+      if(NROW(tmppt) == 0L) stop(paste0("blavaan ERROR: use of wiggle='", x, "' also requires group.equal='", x, "'."))
+
+      out <- lapply(unique(tmppt$label), function(y){
+        tmppt$plabel[tmppt$label == y]
+        })
+      out
+    } else {
+      stop("blavaan ERROR: poorly-specified wiggle argument (cannot be used on variances).")
+    }
+  })
+
+  ## fix list nesting, in case group.equal was used
+  outlist <- NULL
+  if(length(tmplabs) == 1 & inherits(tmplabs[[1]], "list")){
+    tmplabs <- tmplabs[[1]]
+  }
+
+  for(i in 1:length(tmplabs)){
+    if(inherits(tmplabs[[i]], "list")){
+      tmpelem <- tmplabs[[i]]
+    } else {
+      tmpelem <- list(tmplabs[[i]])
+    }
+    if(length(tmpelem[[1]]) > 1){
+      outlist <- c(outlist, tmpelem)
+    }
+  }
+
+  ## prior for partable
+  if(!("prior" %in% names(lavpartable))) lavpartable$prior <- rep("", length(lavpartable$lhs))
+  for(i in 1:length(outlist)){
+    tmprows <- which(lavpartable$plabel %in% outlist[[i]])
+    eqrows <- NULL
+    if(target == "stan"){
+      parname <- with(lavpartable, paste0(mat[tmprows[1]], "[", group[tmprows[1]], ",",
+                                          row[tmprows[1]], ",", col[tmprows[1]], "]"))
+      wigpri <- paste0("normal(", parname, ",", wiggle.sd, ")")
+    } else {
+      dname <- ifelse(grepl("stan", target), "normal(", "dnorm(")
+      wigsc <- ifelse(grepl("stan", target), wiggle.sd, wiggle.sd^(-2))
+      parname <- with(lavpartable, paste0(mat[tmprows[1]], "[", row[tmprows[1]], ",",
+                                          col[tmprows[1]], ",", group[tmprows[1]], "]"))
+      wigpri <- paste0(dname, parname, ",", wigsc, ")")
+
+      ## nuke == rows
+      eqrows <- with(lavpartable, which(op == "==" & (rhs %in% plabel[tmprows])))
+    }
+    lavpartable$prior[tmprows] <- c(lavpartable$prior[tmprows[1]],
+                                    rep(wigpri, length(tmprows) - 1))
+    if(length(eqrows) > 0){
+      lavpartable <- lavpartable[-eqrows,]
+    }
+  }
+
+  list(outlist = outlist, lavpartable = lavpartable)
+}
+  

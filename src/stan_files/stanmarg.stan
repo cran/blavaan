@@ -23,8 +23,9 @@ functions { // you can use these in R following `rstan::expose_stan_functions("f
     for (c in 1:C) for (r in 1:R) {
       real rc = skeleton[r, c];
       if (is_inf(rc)) { // free
-	real eq = eq_skeleton[pos, 1];
-	if (eq == 0) {
+	int eq = eq_skeleton[pos, 1];
+	int wig = eq_skeleton[pos, 3];
+	if (eq == 0 || wig == 1) {
 	  out[r,c] = free_elements[freepos];
 	  freepos += 1;
 	} else {
@@ -33,6 +34,30 @@ functions { // you can use these in R following `rstan::expose_stan_functions("f
 	}
 	pos += 1;
       } else out[r,c] = skeleton[r, c]; // fixed, so do not bump pos
+    }
+    return out;
+  }
+
+  vector fill_prior(vector free_elements, real[] pri_mean, int[,] eq_skeleton) {
+    int R = size(eq_skeleton);
+    int eqelem = 0;
+    int pos = 1;
+    vector[num_elements(pri_mean)] out;
+
+    for (r in 1:R) {
+      if (pos <= num_elements(pri_mean)) {
+	int eq = eq_skeleton[r, 1];
+	int wig = eq_skeleton[r, 3];
+
+	if (eq == 0) {
+	  out[pos] = pri_mean[pos];
+	  pos += 1;
+	} else if (wig == 1) {
+	  eqelem = eq_skeleton[r, 2];
+	  out[pos] = free_elements[eqelem];
+	  pos += 1;
+	}
+      }
     }
     return out;
   }
@@ -141,6 +166,7 @@ data {
   int<lower=1> startrow[Np]; // starting row for each missing pattern
   int<lower=1,upper=Ntot> endrow[Np]; // ending row for each missing pattern
   int<lower=1,upper=Ng> grpnum[Np]; // group number for each row of data
+  int<lower=0,upper=1> wigind; // do any parameters have approx equality constraint ('wiggle')?
   vector[p + q] YX[has_data ? Ntot : 0]; // if data, include them
 
   
@@ -152,23 +178,23 @@ data {
   vector[len_w1] w1[Ng];          // values of free elements in Lambda_y
   int<lower=1> v1[Ng, len_w1];    // index  of free elements in Lambda_y
   int<lower=1> u1[Ng, p + 1];     // index  of free elements in Lambda_y
-  int<lower=0> w1skel[sum(wg1), 2];
+  int<lower=0> w1skel[sum(wg1), 3];
   int<lower=0> lam_y_sign[sum(wg1), 2];
   int<lower=0> len_lam_y;     // number of free elements minus equality constraints
   real lambda_y_mn[len_lam_y];           // prior
   real<lower=0> lambda_y_sd[len_lam_y];
 
   // same things but for Lambda_x
-  int<lower=0> len_w2;
-  int<lower=0> wg2[Ng];
-  vector[len_w2] w2[Ng];
-  int<lower=1> v2[Ng, len_w2];
-  int<lower=1> u2[Ng, q + 1];
-  int<lower=0> w2skel[sum(wg2), 2];
-  int<lower=0> lam_x_sign[sum(wg2), 2];
-  int<lower=0> len_lam_x;
-  real lambda_x_mn[len_lam_x];
-  real<lower=0> lambda_x_sd[len_lam_x];
+  //int<lower=0> len_w2;
+  //int<lower=0> wg2[Ng];
+  //vector[len_w2] w2[Ng];
+  //int<lower=1> v2[Ng, len_w2];
+  //int<lower=1> u2[Ng, q + 1];
+  //int<lower=0> w2skel[sum(wg2), 3];
+  //int<lower=0> lam_x_sign[sum(wg2), 2];
+  //int<lower=0> len_lam_x;
+  //real lambda_x_mn[len_lam_x];
+  //real<lower=0> lambda_x_sd[len_lam_x];
   
   // same things but for Gamma
   int<lower=0> len_w3;
@@ -176,7 +202,7 @@ data {
   vector[len_w3] w3[Ng];
   int<lower=1> v3[Ng, len_w3];
   int<lower=1> u3[Ng, m + 1];
-  int<lower=0> w3skel[sum(wg3), 2];
+  int<lower=0> w3skel[sum(wg3), 3];
   int<lower=0> gam_sign[sum(wg3), 3];
   int<lower=0> len_gam;
   real gamma_mn[len_gam];
@@ -188,7 +214,7 @@ data {
   vector[len_w4] w4[Ng];
   int<lower=1> v4[Ng, len_w4];
   int<lower=1> u4[Ng, m + 1];
-  int<lower=0> w4skel[sum(wg4), 2];
+  int<lower=0> w4skel[sum(wg4), 3];
   int<lower=0> b_sign[sum(wg4), 3];
   int<lower=0> len_b;
   real b_mn[len_b];
@@ -200,7 +226,7 @@ data {
   vector[len_w5] w5[Ng];
   int<lower=1> v5[Ng, len_w5];
   int<lower=1> u5[Ng, p + 1];
-  int<lower=0> w5skel[sum(wg5), 2];
+  int<lower=0> w5skel[sum(wg5), 3];
   int<lower=0> len_thet_sd;
   real<lower=0> theta_sd_shape[len_thet_sd];
   real<lower=0> theta_sd_rate[len_thet_sd];
@@ -214,7 +240,7 @@ data {
   vector[len_w6] w6[Ng];
   int<lower=1> v6[Ng, len_w6];
   int<lower=1> u6[Ng, q + 1];
-  int<lower=0> w6skel[sum(wg6), 2];
+  int<lower=0> w6skel[sum(wg6), 3];
   int<lower=0> len_thet_x_sd;
   real<lower=0> theta_x_sd_shape[len_thet_x_sd];
   real<lower=0> theta_x_sd_rate[len_thet_x_sd];
@@ -226,7 +252,7 @@ data {
   vector[len_w7] w7[Ng];
   int<lower=1> v7[Ng, len_w7];
   int<lower=1> u7[Ng, p + 1];
-  int<lower=0> w7skel[sum(wg7), 2];
+  int<lower=0> w7skel[sum(wg7), 3];
   int<lower=0> len_thet_r;
   real<lower=0> theta_r_alpha[len_thet_r];
   real<lower=0> theta_r_beta[len_thet_r];
@@ -237,7 +263,7 @@ data {
   vector[len_w8] w8[Ng];
   int<lower=1> v8[Ng, len_w8];
   int<lower=1> u8[Ng, q + 1];
-  int<lower=0> w8skel[sum(wg8), 2];
+  int<lower=0> w8skel[sum(wg8), 3];
   int<lower=0> len_thet_x_r;
   real<lower=0> theta_x_r_alpha[len_thet_x_r];
   real<lower=0> theta_x_r_beta[len_thet_x_r];
@@ -248,7 +274,7 @@ data {
   vector[len_w9] w9[Ng];
   int<lower=1> v9[Ng, len_w9];
   int<lower=1> u9[Ng, m + 1];
-  int<lower=0> w9skel[sum(wg9), 2];
+  int<lower=0> w9skel[sum(wg9), 3];
   int<lower=0> len_psi_sd;
   real<lower=0> psi_sd_shape[len_psi_sd];
   real<lower=0> psi_sd_rate[len_psi_sd];
@@ -264,35 +290,35 @@ data {
   vector[len_w10] w10[Ng];
   int<lower=1> v10[Ng, len_w10];
   int<lower=1> u10[Ng, m + 1];
-  int<lower=0> w10skel[sum(wg10), 2];
+  int<lower=0> w10skel[sum(wg10), 3];
   int<lower=0> psi_r_sign[sum(wg10), 3];
   int<lower=0> len_psi_r;
   real<lower=0> psi_r_alpha[len_psi_r];
   real<lower=0> psi_r_beta[len_psi_r];
   
   // same things but for Phi
-  int<lower=0> len_w11;
-  int<lower=0> wg11[Ng];
-  vector[len_w11] w11[Ng];
-  int<lower=1> v11[Ng, len_w11];
-  int<lower=1> u11[Ng, n + 1];
-  int<lower=0> w11skel[sum(wg11), 2];
-  int<lower=0> len_phi_sd;
-  real<lower=0> phi_sd_shape[len_phi_sd];
-  real<lower=0> phi_sd_rate[len_phi_sd];
-  int<lower=-2,upper=2> phi_pow;
+  //int<lower=0> len_w11;
+  //int<lower=0> wg11[Ng];
+  //vector[len_w11] w11[Ng];
+  //int<lower=1> v11[Ng, len_w11];
+  //int<lower=1> u11[Ng, n + 1];
+  //int<lower=0> w11skel[sum(wg11), 3];
+  //int<lower=0> len_phi_sd;
+  //real<lower=0> phi_sd_shape[len_phi_sd];
+  //real<lower=0> phi_sd_rate[len_phi_sd];
+  //int<lower=-2,upper=2> phi_pow;
 
   // same things but for Phi_r
-  int<lower=0> len_w12;
-  int<lower=0> wg12[Ng];
-  vector[len_w12] w12[Ng];
-  int<lower=1> v12[Ng, len_w12];
-  int<lower=1> u12[Ng, n + 1];
-  int<lower=0> w12skel[sum(wg12), 2];
-  int<lower=0> phi_r_sign[sum(wg12), 3];
-  int<lower=0> len_phi_r;
-  real<lower=0> phi_r_alpha[len_phi_r];
-  real<lower=0> phi_r_beta[len_phi_r];
+  //int<lower=0> len_w12;
+  //int<lower=0> wg12[Ng];
+  //vector[len_w12] w12[Ng];
+  //int<lower=1> v12[Ng, len_w12];
+  //int<lower=1> u12[Ng, n + 1];
+  //int<lower=0> w12skel[sum(wg12), 3];
+  //int<lower=0> phi_r_sign[sum(wg12), 3];
+  //int<lower=0> len_phi_r;
+  //real<lower=0> phi_r_alpha[len_phi_r];
+  //real<lower=0> phi_r_beta[len_phi_r];
   
   // same things but for Nu
   int<lower=0> len_w13;
@@ -300,7 +326,7 @@ data {
   vector[len_w13] w13[Ng];
   int<lower=1> v13[Ng, len_w13];
   int<lower=1> u13[Ng, p + q + 1];
-  int<lower=0> w13skel[sum(wg13), 2];
+  int<lower=0> w13skel[sum(wg13), 3];
   int<lower=0> len_nu;
   real nu_mn[len_nu];
   real<lower=0> nu_sd[len_nu];
@@ -311,14 +337,14 @@ data {
   vector[len_w14] w14[Ng];
   int<lower=0> v14[Ng, len_w14];
   int<lower=1> u14[Ng, m + n + 1];
-  int<lower=0> w14skel[sum(wg14), 2];
+  int<lower=0> w14skel[sum(wg14), 3];
   int<lower=0> len_alph;
   real alpha_mn[len_alph];
   real<lower=0> alpha_sd[len_alph];
 }
 transformed data { // (re)construct skeleton matrices in Stan (not that interesting)
   matrix[p, m] Lambda_y_skeleton[Ng];
-  matrix[q, n] Lambda_x_skeleton[Ng];
+  //matrix[q, n] Lambda_x_skeleton[Ng];
   matrix[m, n] Gamma_skeleton[Ng];
   matrix[m, m] B_skeleton[Ng];
   matrix[p, p] Theta_skeleton[Ng];
@@ -327,8 +353,8 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
   matrix[q, q] Theta_x_r_skeleton[Ng];
   matrix[m, m] Psi_skeleton[Ng];
   matrix[m, m] Psi_r_skeleton[Ng];
-  matrix[n, n] Phi_skeleton[Ng];
-  matrix[n, n] Phi_r_skeleton[Ng];
+  //matrix[n, n] Phi_skeleton[Ng];
+  //matrix[n, n] Phi_r_skeleton[Ng];
   matrix[(p + q), 1] Nu_skeleton[Ng];
   matrix[(m + n), 1] Alpha_skeleton[Ng];
 
@@ -374,7 +400,7 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
   
   for (g in 1:Ng) {
     Lambda_y_skeleton[g] = to_dense_matrix(p, m, w1[g], v1[g,], u1[g,]);
-    Lambda_x_skeleton[g] = to_dense_matrix(q, n, w2[g], v2[g,], u2[g,]);
+    //Lambda_x_skeleton[g] = to_dense_matrix(q, n, w2[g], v2[g,], u2[g,]);
     Gamma_skeleton[g] = to_dense_matrix(m, n, w3[g], v3[g,], u3[g,]);
     B_skeleton[g] = to_dense_matrix(m, m, w4[g], v4[g,], u4[g,]);
     Theta_skeleton[g] = to_dense_matrix(p, p, w5[g], v5[g,], u5[g,]);
@@ -383,8 +409,8 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     Theta_x_r_skeleton[g] = to_dense_matrix(q, q, w8[g], v8[g,], u8[g,]);
     Psi_skeleton[g] = to_dense_matrix(m, m, w9[g], v9[g,], u9[g,]);
     Psi_r_skeleton[g] = to_dense_matrix(m, m, w10[g], v10[g,], u10[g,]);
-    Phi_skeleton[g] = to_dense_matrix(n, n, w11[g], v11[g,], u11[g,]);
-    Phi_r_skeleton[g] = to_dense_matrix(n, n, w12[g], v12[g,], u12[g,]);
+    //Phi_skeleton[g] = to_dense_matrix(n, n, w11[g], v11[g,], u11[g,]);
+    //Phi_r_skeleton[g] = to_dense_matrix(n, n, w12[g], v12[g,], u12[g,]);
     Nu_skeleton[g] = to_dense_matrix((p + q), 1, w13[g], v13[g,], u13[g,]);
     Alpha_skeleton[g] = to_dense_matrix((m + n), 1, w14[g], v14[g,], u14[g,]);
     
@@ -394,23 +420,23 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     for (i in 1:p) {
       for (j in 1:m) {
         if (is_inf(Lambda_y_skeleton[g,i,j])) {
-	  if (w1skel[pos[1],2] == 0) len_free[1] += 1;
+	  if (w1skel[pos[1],2] == 0 || w1skel[pos[1],3] == 1) len_free[1] += 1;
 	  pos[1] += 1;
         }
       }
     }
 
     // same thing but for Lambda_x_skeleton
-    g_start2[g] = len_free[2] + 1;
-    f_start2[g] = pos[2];
-    for (i in 1:q) {
-      for (j in 1:n) {
-	if (is_inf(Lambda_x_skeleton[g,i,j])) {
-	  if (w2skel[pos[2],2] == 0) len_free[2] += 1;
-	  pos[2] += 1;
-	}
-      }
-    }
+    //g_start2[g] = len_free[2] + 1;
+    //f_start2[g] = pos[2];
+    //for (i in 1:q) {
+    //  for (j in 1:n) {
+    //    if (is_inf(Lambda_x_skeleton[g,i,j])) {
+    //	  if (w2skel[pos[2],2] == 0 || w2skel[pos[2],3] == 1) len_free[2] += 1;
+    //	  pos[2] += 1;
+    //	}
+    //  }
+    //}
   
     // same thing but for Gamma_skeleton
     g_start3[g] = len_free[3] + 1;
@@ -418,7 +444,7 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     for (i in 1:m) {
       for (j in 1:n) {
 	if (is_inf(Gamma_skeleton[g,i,j])) {
-	  if (w3skel[pos[3],2] == 0) len_free[3] += 1;
+	  if (w3skel[pos[3],2] == 0 || w3skel[pos[3],3] == 1) len_free[3] += 1;
 	  pos[3] += 1;
 	}
       }
@@ -430,7 +456,7 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     for (i in 1:m) {
       for (j in 1:m) {
 	if (is_inf(B_skeleton[g,i,j])) {
-	  if (w4skel[pos[4],2] == 0) len_free[4] += 1;
+	  if (w4skel[pos[4],2] == 0 || w4skel[pos[4],3] == 1) len_free[4] += 1;
 	  pos[4] += 1;
 	}
       }
@@ -441,7 +467,7 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     f_start5[g] = pos[5];
     for (i in 1:p) {
       if (is_inf(Theta_skeleton[g,i,i])) {
-	if (w5skel[pos[5],2] == 0) len_free[5] += 1;
+	if (w5skel[pos[5],2] == 0 || w5skel[pos[5],3] == 1) len_free[5] += 1;
 	pos[5] += 1;
       }
     }
@@ -451,7 +477,7 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     f_start6[g] = pos[6];
     for (i in 1:q) {
       if (is_inf(Theta_x_skeleton[g,i,i])) {
-	if (w6skel[pos[6],2] == 0) len_free[6] += 1;
+	if (w6skel[pos[6],2] == 0 || w6skel[pos[6],3] == 1) len_free[6] += 1;
 	pos[6] += 1;
       }
     }
@@ -462,7 +488,7 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     for (i in 1:(p-1)) {
       for (j in (i+1):p) {
 	if (is_inf(Theta_r_skeleton[g,j,i])) {
-	  if (w7skel[pos[7],2] == 0) len_free[7] += 1;
+	  if (w7skel[pos[7],2] == 0 || w7skel[pos[7],3] == 1) len_free[7] += 1;
 	  pos[7] += 1;
 	}
       }
@@ -474,7 +500,7 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     for (i in 1:(q-1)) {
       for (j in (i+1):q) {
 	if (is_inf(Theta_x_r_skeleton[g,j,i])) {
-	  if (w8skel[pos[8],2] == 0) len_free[8] += 1;
+	  if (w8skel[pos[8],2] == 0 || w8skel[pos[8],3] == 1) len_free[8] += 1;
 	  pos[8] += 1;
 	}
       }
@@ -485,7 +511,7 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     f_start9[g] = pos[9];
     for (i in 1:m) {
       if (is_inf(Psi_skeleton[g,i,i])) {
-	if (w9skel[pos[9],2] == 0) len_free[9] += 1;
+	if (w9skel[pos[9],2] == 0 || w9skel[pos[9],3] == 1) len_free[9] += 1;
 	pos[9] += 1;
       }
     }
@@ -496,33 +522,33 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     for (i in 1:(m-1)) {
       for (j in (i+1):m) {
 	if (is_inf(Psi_r_skeleton[g,j,i])) {
-	  if (w10skel[pos[10],2] == 0) len_free[10] += 1;
+	  if (w10skel[pos[10],2] == 0 || w10skel[pos[10],3] == 1) len_free[10] += 1;
 	  pos[10] += 1;
 	}
       }
     }
 
     // same thing but for Phi_skeleton
-    g_start11[g] = len_free[11] + 1;
-    f_start11[g] = pos[11];
-    for (i in 1:n) {
-      if (is_inf(Phi_skeleton[g,i,i])) {
-	if (w11skel[pos[11],2] == 0) len_free[11] += 1;
-	pos[11] += 1;
-      }
-    }
+    //g_start11[g] = len_free[11] + 1;
+    //f_start11[g] = pos[11];
+    //for (i in 1:n) {
+    //  if (is_inf(Phi_skeleton[g,i,i])) {
+    //	if (w11skel[pos[11],2] == 0 || w11skel[pos[11],3] == 1) len_free[11] += 1;
+    //	pos[11] += 1;
+    //  }
+    //}
 
     // same thing but for Phi_r_skeleton
-    g_start12[g] = len_free[12] + 1;
-    f_start12[g] = pos[12];
-    for (i in 1:(n-1)) {
-      for (j in (i+1):n) {
-	if (is_inf(Phi_r_skeleton[g,j,i])) {
-	  if (w12skel[pos[12],2] == 0) len_free[12] += 1;
-	  pos[12] += 1;
-	}
-      }
-    }
+    //g_start12[g] = len_free[12] + 1;
+    //f_start12[g] = pos[12];
+    //for (i in 1:(n-1)) {
+    //  for (j in (i+1):n) {
+    //	if (is_inf(Phi_r_skeleton[g,j,i])) {
+    //	  if (w12skel[pos[12],2] == 0 || w12skel[pos[12],3] == 1) len_free[12] += 1;
+    //	  pos[12] += 1;
+    //	}
+    //  }
+    //}
 
     // same thing but for Nu_skeleton
     // pos = len_free13 + 1;
@@ -530,7 +556,7 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     f_start13[g] = pos[13];
     for (i in 1:(p+q)) {
       if (is_inf(Nu_skeleton[g,i,1])) {
-	if (w13skel[pos[13],2] == 0) len_free[13] += 1;
+	if (w13skel[pos[13],2] == 0 || w13skel[pos[13],3] == 1) len_free[13] += 1;
 	pos[13] += 1;
       }
     }
@@ -540,7 +566,7 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
     f_start14[g] = pos[14];
     for (i in 1:(m+n)) {
       if (is_inf(Alpha_skeleton[g,i,1])) {
-	if (w14skel[pos[14],2] == 0) len_free[14] += 1;
+	if (w14skel[pos[14],2] == 0 || w14skel[pos[14],3] == 1) len_free[14] += 1;
 	pos[14] += 1;
       }
     }
@@ -549,7 +575,7 @@ transformed data { // (re)construct skeleton matrices in Stan (not that interest
 parameters {
   // free elements (possibly with inequality constraints) for coefficient matrices
   vector[len_free[1]] Lambda_y_free;
-  vector[len_free[2]] Lambda_x_free;
+  //vector[len_free[2]] Lambda_x_free;
   vector[len_free[3]] Gamma_free;
   vector[len_free[4]] B_free;
   vector<lower=0>[len_free[5]] Theta_sd_free;
@@ -558,14 +584,14 @@ parameters {
   vector<lower=0,upper=1>[len_free[8]] Theta_x_r_free;
   vector<lower=0>[len_free[9]] Psi_sd_free;
   vector<lower=0,upper=1>[len_free[10]] Psi_r_free;
-  vector<lower=0>[len_free[11]] Phi_sd_free;
-  vector<lower=0,upper=1>[len_free[12]] Phi_r_free;
+  //vector<lower=0>[len_free[11]] Phi_sd_free;
+  //vector<lower=0,upper=1>[len_free[12]] Phi_r_free;
   vector[len_free[13]] Nu_free;
   vector[len_free[14]] Alpha_free;
 }
 transformed parameters {
   matrix[p, m] Lambda_y[Ng];
-  matrix[q, n] Lambda_x[Ng];
+  //matrix[q, n] Lambda_x[Ng];
   matrix[m, n] Gamma[Ng];
   matrix[m, m] B[Ng];
   matrix[p, p] Theta_sd[Ng];
@@ -578,19 +604,24 @@ transformed parameters {
   matrix[m + n, 1] Alpha[Ng];
 
   matrix[m, m] Psi[Ng];
-  matrix[n, n] PHI[Ng];
+  //matrix[n, n] PHI[Ng];
   
   matrix[m, m] Psi_sd[Ng];
   matrix[m, m] Psi_r_lower[Ng];
   matrix[m, m] Psi_r[Ng];
-  matrix[n, n] Phi_sd[Ng];
-  matrix[n, n] Phi_r_lower[Ng];
-  matrix[n, n] Phi_r[Ng];
+  //matrix[n, n] Phi_sd[Ng];
+  //matrix[n, n] Phi_r_lower[Ng];
+  //matrix[n, n] Phi_r[Ng];
 
+  vector[len_free[1]] lambda_y_primn;
+  vector[len_free[4]] b_primn;
+  vector[len_free[13]] nu_primn;
+  vector[len_free[14]] alpha_primn;
+  
   // Now fill them in
   for (g in 1:Ng) {
     Lambda_y[g] = fill_matrix(Lambda_y_free, Lambda_y_skeleton[g], w1skel, g_start1[g], f_start1[g]);
-    Lambda_x[g] = fill_matrix(Lambda_x_free, Lambda_x_skeleton[g], w2skel, g_start2[g], f_start2[g]);
+    //Lambda_x[g] = fill_matrix(Lambda_x_free, Lambda_x_skeleton[g], w2skel, g_start2[g], f_start2[g]);
     Gamma[g] = fill_matrix(Gamma_free, Gamma_skeleton[g], w3skel, g_start3[g], f_start3[g]);
     B[g] = fill_matrix(B_free, B_skeleton[g], w4skel, g_start4[g], f_start4[g]);
     Theta_sd[g] = fill_matrix(Theta_sd_free, Theta_skeleton[g], w5skel, g_start5[g], f_start5[g]);
@@ -603,7 +634,7 @@ transformed parameters {
     Alpha[g] = fill_matrix(Alpha_free, Alpha_skeleton[g], w14skel, g_start14[g], f_start14[g]);
 
     Psi[g] = diag_matrix(rep_vector(0, m));
-    PHI[g] = diag_matrix(rep_vector(0, n));
+    //PHI[g] = diag_matrix(rep_vector(0, n));
   
     if (m > 0) {
       Psi_sd[g] = fill_matrix(Psi_sd_free, Psi_skeleton[g], w9skel, g_start9[g], f_start9[g]);
@@ -612,12 +643,24 @@ transformed parameters {
       Psi[g] = quad_form_sym(Psi_r[g], Psi_sd[g]);
     }
 
-    if (n > 0) {
+    /*if (n > 0) {
       Phi_sd[g] = fill_matrix(Phi_sd_free, Phi_skeleton[g], w11skel, g_start11[g], f_start11[g]);
       Phi_r_lower[g] = fill_matrix(2*Phi_r_free - 1, Phi_r_skeleton[g], w12skel, g_start12[g], f_start12[g]);
       Phi_r[g] = Phi_r_lower[g] + transpose(Phi_r_lower[g]) - diag_matrix(rep_vector(1, n));
       PHI[g] = quad_form_sym(Phi_r[g], Phi_sd[g]);
-    }
+      }*/
+  }
+
+  if (wigind) {
+    lambda_y_primn = fill_prior(Lambda_y_free, lambda_y_mn, w1skel);
+    b_primn = fill_prior(B_free, b_mn, w4skel);
+    nu_primn = fill_prior(Nu_free, nu_mn, w13skel);
+    alpha_primn = fill_prior(Alpha_free, alpha_mn, w14skel);
+  } else {
+    lambda_y_primn = to_vector(lambda_y_mn);
+    b_primn = to_vector(b_mn);
+    nu_primn = to_vector(nu_mn);
+    alpha_primn = to_vector(alpha_mn);
   }
 }
 model { // N.B.: things declared in the model block do not get saved in the output, which is okay here
@@ -634,16 +677,17 @@ model { // N.B.: things declared in the model block do not get saved in the outp
   vector[len_free[5]] Theta_pri;
   vector[len_free[6]] Theta_x_pri;
   vector[len_free[9]] Psi_pri;
-  vector[len_free[11]] Phi_pri;
+  //vector[len_free[11]] Phi_pri;
 
   for (g in 1:Ng) {
     if (m > 0) {
       Lambda_y_A[g] = mdivide_right(Lambda_y[g], I - B[g]);     // = Lambda_y * (I - B)^{-1}
     }
-    Lambda_xt[g] = transpose(Lambda_x[g]);                         // copies so do it just once
+    //Lambda_xt[g] = transpose(Lambda_x[g]);                         // copies so do it just once
 
     Mu[g] = to_vector(Nu[g]);
 
+    /*
     if (q > 0) {
       top_right[g] = Lambda_y_A[g] * Gamma[g] * PHI[g] * Lambda_xt[g];        // top right block of Sigma    
       Sigma[g, 1:p, (p + 1):(p + q)] = top_right[g];
@@ -654,13 +698,13 @@ model { // N.B.: things declared in the model block do not get saved in the outp
       if (n > 0) {
 	Mu[g, (p + 1):(p + q)] += to_vector(Lambda_x[g] * Alpha[g, (m + 1):(m + n), 1]);
       }
-    }
+    }*/
 
     GPG[g] = diag_matrix(rep_vector(0, m));
     if (p > 0) {
-      if (q > 0) {
-	GPG[g] = quad_form_sym(PHI[g], transpose(Gamma[g]));
-      }
+      //if (q > 0) {
+      //  GPG[g] = quad_form_sym(PHI[g], transpose(Gamma[g]));
+      //}
       Sigma[g, 1:p, 1:p] = quad_form_sym(Theta_r[g], Theta_sd[g]);
       if (m > 0) {
         Sigma[g, 1:p, 1:p] += quad_form_sym(GPG[g] + Psi[g], transpose(Lambda_y_A[g]));
@@ -692,13 +736,13 @@ model { // N.B.: things declared in the model block do not get saved in the outp
   }
   
   /* prior densities in log-units */
-  target += normal_lpdf(Lambda_y_free | lambda_y_mn, lambda_y_sd);
-  target += normal_lpdf(Lambda_x_free | lambda_x_mn, lambda_x_sd);
+  target += normal_lpdf(Lambda_y_free | lambda_y_primn, lambda_y_sd);
+  //target += normal_lpdf(Lambda_x_free | lambda_x_mn, lambda_x_sd);
   target += normal_lpdf(Gamma_free    | gamma_mn, gamma_sd);
-  target += normal_lpdf(B_free        | b_mn, b_sd);
+  target += normal_lpdf(B_free        | b_primn, b_sd);
 
-  target += normal_lpdf(Nu_free       | nu_mn, nu_sd);
-  target += normal_lpdf(Alpha_free    | alpha_mn, alpha_sd);
+  target += normal_lpdf(Nu_free       | nu_primn, nu_sd);
+  target += normal_lpdf(Alpha_free    | alpha_primn, alpha_sd);
 
   /* transform sd parameters to var or prec, depending on
      what the user wants. */
@@ -720,22 +764,22 @@ model { // N.B.: things declared in the model block do not get saved in the outp
       Psi_pri[i] = Psi_sd_free[i]^(psi_pow);
     }
   }
-  Phi_pri = Phi_sd_free;
-  if (len_free[11] > 0 && phi_pow != 1) {
-    for (i in 1:len_free[11]) {    
-      Phi_pri[i] = Phi_sd_free[i]^(phi_pow);
-    }
-  }
+  //Phi_pri = Phi_sd_free;
+  //if (len_free[11] > 0 && phi_pow != 1) {
+  //  for (i in 1:len_free[11]) {    
+  //    Phi_pri[i] = Phi_sd_free[i]^(phi_pow);
+  //  }
+  //}
 
   target += gamma_lpdf(Theta_pri | theta_sd_shape, theta_sd_rate);
   target += gamma_lpdf(Theta_x_pri | theta_x_sd_shape, theta_x_sd_rate);
   target += gamma_lpdf(Psi_pri | psi_sd_shape, psi_sd_rate);
-  target += gamma_lpdf(Phi_pri | phi_sd_shape, phi_sd_rate);
+  //target += gamma_lpdf(Phi_pri | phi_sd_shape, phi_sd_rate);
 
   target += beta_lpdf(Theta_r_free | theta_r_alpha, theta_r_beta);
   target += beta_lpdf(Theta_x_r_free | theta_x_r_alpha, theta_x_r_beta);
   target += beta_lpdf(Psi_r_free | psi_r_alpha, psi_r_beta);
-  target += beta_lpdf(Phi_r_free | phi_r_alpha, phi_r_beta);
+  //target += beta_lpdf(Phi_r_free | phi_r_alpha, phi_r_beta);
 }
 generated quantities { // these matrices are saved in the output but do not figure into the likelihood
   // see https://books.google.com/books?id=9AC-s50RjacC&lpg=PP1&dq=LISREL&pg=PA34#v=onepage&q=LISREL&f=false
@@ -747,8 +791,8 @@ generated quantities { // these matrices are saved in the output but do not figu
   // sign constraints and correlations
   vector[len_free[1]] ly_sign;
   matrix[p, m] L_Y[Ng];
-  vector[len_free[2]] lx_sign;
-  matrix[q, n] L_X[Ng];
+  //vector[len_free[2]] lx_sign;
+  //matrix[q, n] L_X[Ng];
   vector[len_free[3]] g_sign;
   matrix[m, n] Gam[Ng];
   vector[len_free[4]] bet_sign;
@@ -757,8 +801,8 @@ generated quantities { // these matrices are saved in the output but do not figu
   matrix[q, q] Theta_x[Ng];
   matrix[m, m] PSmat[Ng];
   matrix[m, m] PS[Ng];
-  matrix[n, n] PHmat[Ng];
-  matrix[n, n] PH[Ng];
+  //matrix[n, n] PHmat[Ng];
+  //matrix[n, n] PH[Ng];
   vector[len_free[7]] Theta_cov;
   vector[len_free[5]] Theta_var;
   vector[len_free[8]] Theta_x_cov;
@@ -766,22 +810,22 @@ generated quantities { // these matrices are saved in the output but do not figu
   vector[len_free[10]] P_r;
   vector[len_free[10]] Psi_cov;
   vector[len_free[9]] Psi_var;
-  vector[len_free[12]] Ph_r;
-  vector[len_free[12]] Ph_cov;
-  vector[len_free[11]] Ph_var;
+  //vector[len_free[12]] Ph_r;
+  //vector[len_free[12]] Ph_cov;
+  //vector[len_free[11]] Ph_var;
 
   // first deal with sign constraints:
   ly_sign = sign_constrain_load(Lambda_y_free, len_free[1], lam_y_sign);
-  lx_sign = sign_constrain_load(Lambda_x_free, len_free[2], lam_x_sign);
-  g_sign = sign_constrain_reg(Gamma_free, len_free[3], gam_sign, Lambda_x_free, Lambda_y_free);
+  //lx_sign = sign_constrain_load(Lambda_x_free, len_free[2], lam_x_sign);
+  //g_sign = sign_constrain_reg(Gamma_free, len_free[3], gam_sign, Lambda_x_free, Lambda_y_free);
   bet_sign = sign_constrain_reg(B_free, len_free[4], b_sign, Lambda_y_free, Lambda_y_free);
   P_r = sign_constrain_reg(2 * Psi_r_free - 1, len_free[10], psi_r_sign, Lambda_y_free, Lambda_y_free);
-  Ph_r = sign_constrain_reg(2 * Phi_r_free - 1, len_free[12], phi_r_sign, Lambda_x_free, Lambda_x_free);
+  //Ph_r = sign_constrain_reg(2 * Phi_r_free - 1, len_free[12], phi_r_sign, Lambda_x_free, Lambda_x_free);
   
   for (g in 1:Ng) {
     L_Y[g] = fill_matrix(ly_sign, Lambda_y_skeleton[g], w1skel, g_start1[g], f_start1[g]);
 
-    L_X[g] = fill_matrix(lx_sign, Lambda_x_skeleton[g], w2skel, g_start2[g], f_start2[g]);
+    //L_X[g] = fill_matrix(lx_sign, Lambda_x_skeleton[g], w2skel, g_start2[g], f_start2[g]);
 
     Gam[g] = fill_matrix(g_sign, Gamma_skeleton[g], w3skel, g_start3[g], f_start3[g]);
 
@@ -798,10 +842,11 @@ generated quantities { // these matrices are saved in the output but do not figu
       PS[g] = quad_form_sym(PSmat[g] + transpose(PSmat[g]) - diag_matrix(rep_vector(1, m)), Psi_sd[g]);
     }
 
+    /*
     if (n > 0) {
       PHmat[g] = fill_matrix(Ph_r, Phi_r_skeleton[g], w12skel, g_start12[g], f_start12[g]);
       PH[g] = quad_form_sym(PHmat[g] + transpose(PHmat[g]) - diag_matrix(rep_vector(1, n)), Phi_sd[g]);
-    }
+      }*/
     
   }
 
@@ -821,7 +866,7 @@ generated quantities { // these matrices are saved in the output but do not figu
   } else {
     Psi_cov = P_r;
   }
-  if (n > 0 && len_free[12] > 0) {
+  /*if (n > 0 && len_free[12] > 0) {
     matrix[n, n] iden[Ng];
     for (g in 1:Ng) {
       iden[g] = diag_matrix(rep_vector(1, n));
@@ -829,9 +874,9 @@ generated quantities { // these matrices are saved in the output but do not figu
     Ph_cov = cor2cov(PH, iden, Ph_r, Phi_r_skeleton, w12skel, Ng);
   } else {
     Ph_cov = Ph_r;
-  }
+    }*/
   Psi_var = Psi_sd_free .* Psi_sd_free;
-  Ph_var = Phi_sd_free .* Phi_sd_free;
+  //Ph_var = Phi_sd_free .* Phi_sd_free;
 
   // now use matrices with sign fixes to deal with lvs
   if (save_lvs && (m + n) > 0) { // all matrices defined in this local block are not saved in the output
@@ -848,7 +893,7 @@ generated quantities { // these matrices are saved in the output but do not figu
     matrix[n, m] Pi_t;
     matrix[m, p] L_Yt;
     matrix[p, m] L_Y_A[Ng];
-    matrix[n, q] L_Xt;
+    //matrix[n, q] L_Xt;
     matrix[n, m] cov_eta_xi;
     matrix[q, m] cov_x_eta;
     matrix[n, p] cov_y_xi;
@@ -876,9 +921,9 @@ generated quantities { // these matrices are saved in the output but do not figu
     for (g in 1:Ng) {
       ovmean[g] = to_vector(Nu[g]);
 
-      if (q > 0 && n > 0) {
-	ovmean[g, (p + 1):(p + q)] += to_vector(Lambda_x[g] * Alpha[g, (m + 1):(m + n), 1]);
-      }
+      //if (q > 0 && n > 0) {
+      //  ovmean[g, (p + 1):(p + q)] += to_vector(Lambda_x[g] * Alpha[g, (m + 1):(m + n), 1]);
+      //}
 
       if (p > 0) {
 	L_Y_A[g] = mdivide_right(L_Y[g], I - Bet[g]);
@@ -909,8 +954,9 @@ generated quantities { // these matrices are saved in the output but do not figu
       Psi_star = quad_form_sym(PS[grpidx], transpose(A)); // original was: L_Psi);
       Pi_t = transpose(total_xi_eta);
       L_Yt = transpose(L_Y[grpidx]);
-      L_Xt = transpose(L_X[grpidx]);
+      //L_Xt = transpose(L_X[grpidx]);
 
+      /*
       if (n > 0) {
         cov_eta_xi = PHI[grpidx] * Pi_t;
         cov_x_eta = L_X[grpidx] * cov_eta_xi;
@@ -930,20 +976,20 @@ generated quantities { // these matrices are saved in the output but do not figu
     
         bottom_right = append_row(
           append_col(cov_eta, transpose(cov_eta_xi)), append_col(cov_eta_xi, PHI[grpidx]) );
-      } else {
-        cov_eta = Psi_star;
-        top_left = quad_form_sym(cov_eta, L_Yt) + Theta[grpidx];
+	  } else {*/
+      cov_eta = Psi_star;
+      top_left = quad_form_sym(cov_eta, L_Yt) + Theta[grpidx];
       
-        corner = cov_eta * L_Yt;
+      corner = cov_eta * L_Yt;
     
-        bottom_right = cov_eta;
-      }
+      bottom_right = cov_eta;
+	//}
 
       // FIXME?? what if obsidx also extends to x variables?
       obsidx = Obsvar[mm, ];
-      precision = inverse_spd(top_left);
-      L = cholesky_decompose(bottom_right[usepsi,usepsi] - quad_form_sym(precision, transpose(corner))[usepsi,usepsi]);
-      beta[, 1:Nobs[mm]] = corner[, obsidx[1:Nobs[mm]]] * precision[obsidx[1:Nobs[mm]], obsidx[1:Nobs[mm]]];
+      precision[1:Nobs[mm],1:Nobs[mm]] = inverse_spd(top_left[obsidx[1:Nobs[mm]], obsidx[1:Nobs[mm]]]);
+      L = cholesky_decompose(bottom_right[usepsi,usepsi] - quad_form_sym(precision[1:Nobs[mm],1:Nobs[mm]], transpose(corner[,obsidx[1:Nobs[mm]]]))[usepsi,usepsi]);
+      beta[, 1:Nobs[mm]] = corner[, obsidx[1:Nobs[mm]]] * precision[1:Nobs[mm], 1:Nobs[mm]];
 
       r1 = startrow[mm];
       r2 = endrow[mm];

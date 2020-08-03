@@ -87,7 +87,7 @@ test_that("blavaan object methods work", {
     fitlav <- cfa(HS.model, data=HolzingerSwineford1939,
                   meanstructure=TRUE)
     expect_true(cor(blavInspect(fitstanfs, 'lvmeans')[,1],
-                    lavPredict(fitlav, 'lv')[,1]) > .95)
+                    lavPredict(fitlav, type='lv')[,1]) > .95)
 
     ## plots
     expect_silent(p <- plot(fitstan, showplot = FALSE))
@@ -109,9 +109,12 @@ test_that("blavaan object methods work", {
     expect_silent(p <- plot(fitjags, c(2,4), plot.type = "scatter", showplot = FALSE))
   }
 
-  ## ppmc
+  ## blavFit + ppmc
   ppmc_res <- ppmc(fitstan)
   expect_s4_class(ppmc_res, "blavPPMC")
   ppmc_summ <- summary(ppmc_res)
   expect_s3_class(ppmc_summ, "lavaan.data.frame")
+  bf_res <- blavFitIndices(fitstan)
+  expect_s4_class(bf_res, "blavFitIndices")
+  expect_s3_class(summary(bf_res), "lavaan.data.frame")
 })

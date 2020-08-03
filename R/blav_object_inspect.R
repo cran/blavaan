@@ -110,10 +110,9 @@ blavInspect <- function(blavobject, what, ...) {
             ## how many lvs, excluding phantoms
             lvmn <- lavInspect(blavobject, "mean.lv")
             if(inherits(lvmn, "list")){
-                nlv <- length(lvmn[[1]])
-            } else {
-                nlv <- length(lvmn)
+                lvmn <- lvmn[[1]]
             }
+            nlv <- length(lvmn)
 
             nsamp <- sum(lavInspect(blavobject, "nobs"))
 
@@ -131,9 +130,43 @@ blavInspect <- function(blavobject, what, ...) {
             }
             draws <- lapply(draws, function(x) mcmc(x[,drawcols]))
 
+            ## for target="stan" + missing, use @Data@Mp to reorder rows to correspond
+            ## to original data
+            mis <- any(is.na(unlist(blavobject@Data@X)))
+            if(blavobject@Options$target == "stan" & mis){
+                rorig <- sapply(blavobject@Data@Mp, function(x) unlist(x$case.idx))
+                cids <- sapply(blavobject@Data@Mp, function(x) x$case.idx)
+                ## reordering for lvmeans:
+                if(nlv > 1){
+                    norig <- length(rorig)
+                    rord <- rep(NA, nlv*norig)
+                    for(i in 1:nlv){
+                        rord[((i-1)*norig + 1):(i*norig)] <- i*rorig
+                    }
+                } else {
+                    rord <- rorig
+                }
+                ## for lvs
+                rsamps <- rep(NA, nlv*norig)
+                for(j in 1:nlv){
+                    tmpsamp <- rep(NA, norig)
+                    cumn <- 0
+                    for(i in 1:length(cids)){
+                      tmpids <- cids[[i]]
+                      ncase <- length(tmpids)
+                      tmpsamp[(cumn + 1):(cumn + ncase)] <- (j-1)*norig + tmpids
+                      cumn <- cumn + ncase
+                    }
+                    rsamps[((j-1)*norig + 1):(j*norig)] <- tmpsamp
+                }
+
+                for(j in 1:length(draws)){
+                    draws[[j]][,rsamps] <- draws[[j]]#[,rsamps]
+                }
+            }
             draws <- mcmc.list(draws)
 
-            if(what %in% c("lvmeans", "fsmeans") | "means" %in% dotdotdot){
+            if((what %in% c("lvmeans", "fsmeans")) | ("means" %in% dotdotdot)){
                 br <- TRUE
                 if(jagtarget){
                     summ <- blavobject@external$mcmcout$summaries
@@ -146,7 +179,11 @@ blavInspect <- function(blavobject, what, ...) {
                 mnrows <- grep("^eta", rownames(summ))
 
                 draws <- matrix(summ[mnrows,summname], nsamp,
-                                length(mnrows)/nsamp, byrow=br)[,1:nlv]
+                                length(mnrows)/nsamp, byrow=br)[,1:nlv,drop=FALSE]
+                colnames(draws) <- names(lvmn)
+                if(blavobject@Options$target == "stan" & mis){
+                    draws[rorig,] <- draws
+                }
             }
             draws
         } else if(what == "n.chains"){

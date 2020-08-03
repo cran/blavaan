@@ -43,7 +43,7 @@ summary.blavFitIndices <- function(object,
     if ("mode" %in% central.tendency || "map" %in% central.tendency) {
       ## can the modeest package be used?
       if (suppressMessages(requireNamespace("modeest", quietly = TRUE))) {
-        out <- c(out, MAP =  modeest::mlv(x, method = "kernel", na.rm = TRUE)$M)
+        out <- c(out, MAP =  modeest::mlv(x, method = "kernel", na.rm = TRUE))
       } else {
         ## if not, use the quick-and-dirty way
         dd <- density(x, na.rm = TRUE)
@@ -189,7 +189,7 @@ blavFitIndices <- function(object, thin = 1, pD = c("loo","waic","dic"),
                               lavjags = baseline.model@external$mcmcout,
                               samplls = baseline.model@external$samplls)$ppdist[["reps"]]
       }
-      pD_null <- fitMeasures(baseline.model, 'p_loo')
+      pD_null <- fitMeasures(baseline.model, paste0('p_', pD))
     }
   }
 

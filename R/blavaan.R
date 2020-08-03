@@ -13,6 +13,8 @@ blavaan <- function(...,  # default lavaan arguments
                     convergence        = "manual",
                     target             = "stan",
                     save.lvs           = FALSE,
+                    wiggle             = NULL,
+                    wiggle.sd          = 0.1,
                     jags.ic            = FALSE,
                     seed               = NULL,
                     bcontrol         = list()
@@ -44,12 +46,17 @@ blavaan <- function(...,  # default lavaan arguments
         }
     }
 
-    # ordinal functionality not available
-    if("ordered" %in% dotNames) stop("blavaan ERROR: models with ordered variables are not yet available.")
-
     # multilevel functionality not available
     if("cluster" %in% dotNames) stop("blavaan ERROR: two-level models are not yet available.")
 
+    # wiggle sd
+    if(wiggle.sd <= 0L) stop("blavaan ERROR: wiggle.sd must be > 0.")
+
+    if(length(wiggle) > 0 & target == 'stancond') stop(paste0("blavaan ERROR: wiggle is currently not available for target ", target))
+
+    # no current functionality to generate initial values from approximately-equal prior
+    if(length(wiggle) > 0 & target %in% c('stanclassic', 'jags')) inits <- "simple"
+  
     # ensure rstan/runjags are here. if target is not installed but
     # the other is, then use the other instead.
     if(grepl("stan", target)){
@@ -244,6 +251,11 @@ blavaan <- function(...,  # default lavaan arguments
         stop("blavaan ERROR: full data are required. consider using kd() from package semTools.")
     }
 
+    # ordinal functionality not available
+    if(lavInspect(LAV, 'categorical')) {
+        stop("blavaan ERROR: models with ordered variables are not yet available.")
+    }
+    
     # turn warnings back on by default
     LAV@Options$warn <- origwarn
 
@@ -406,15 +418,16 @@ blavaan <- function(...,  # default lavaan arguments
                                          cp = cp, lv.x.wish = lavoptions$auto.cov.lv.x,
                                          dp = dp, n.chains = n.chains,
                                          mcmcextra = mcmcextra, inits = initsin,
-                                         blavmis = blavmis, target="jags"),
+                                         blavmis = blavmis, wiggle = wiggle,
+                                         wiggle.sd = wiggle.sd, target = "jags"),
                                 silent = TRUE)
             } else if(target == "stanclassic"){
                 jagtrans <- try(lav2stan(model = LAV,
                                          lavdata = lavdata,
                                          dp = dp, n.chains = n.chains,
                                          mcmcextra = mcmcextra,
-                                         inits = initsin,
-                                         debug = mcdebug),
+                                         inits = initsin, wiggle = wiggle,
+                                         wiggle.sd = wiggle.sd, debug = mcdebug),
                                 silent = TRUE)
             } else if(target == "stancond"){
                 jagtrans <- try(lav2stancond(model = LAV,
@@ -427,24 +440,33 @@ blavaan <- function(...,  # default lavaan arguments
             } else {
                 l2s <- try(lav2stanmarg(lavobject = LAV, dp = dp,
                                         n.chains = n.chains,
-                                        inits = initsin),
+                                        inits = initsin, wiggle = wiggle,
+                                        wiggle.sd = wiggle.sd),
                            silent = TRUE)
+
                 if(!inherits(l2s, "try-error")){
+                    lavpartable$prior[as.numeric(rownames(l2s$lavpartable))] <- l2s$lavpartable$prior
                     ldargs <- c(l2s$dat, list(lavpartable = l2s$lavpartable, dumlv = l2s$dumlv,
                                               save_lvs = save.lvs))
-                    lavpartable$prior <- l2s$lavpartable$prior
+
+                    ## add priors to lavpartable, including wiggle
+                    if(length(wiggle) > 0){
+                      wigrows <- which(l2s$wigpris != "")
+                      lavpartable$prior[as.numeric(rownames(l2s$lavpartable))[wigrows]] <- l2s$wigpris[wigrows]
+                    }
+
                     jagtrans <- try(do.call("stanmarg_data", ldargs), silent = TRUE)
 
                     if(inherits(jagtrans, "try-error")) stop(jagtrans)
                     
                     jagtrans <- list(data = jagtrans,
                                      monitors = c("ly_sign",
-                                           "lx_sign",
+                                           #"lx_sign",
                                            "bet_sign", "g_sign",
                                            "Theta_cov", "Theta_var",
                                            "Theta_x_cov", "Theta_x_var",
                                            "Psi_cov", "Psi_var",
-                                           "Ph_cov", "Ph_var",
+                                           #"Ph_cov", "Ph_var",
                                            "Nu_free", "Alpha_free"))
                     if("init" %in% names(l2s)){
                       jagtrans <- c(jagtrans, list(inits = l2s$init))
@@ -837,8 +859,8 @@ blavaan <- function(...,  # default lavaan arguments
 bcfa <- bsem <- function(..., cp = "srs", dp = NULL,
     n.chains = 3, burnin, sample, adapt,
     mcmcfile = FALSE, mcmcextra = list(), inits = "prior",
-    convergence = "manual", target = "stan", save.lvs = FALSE,
-    jags.ic = FALSE, seed = NULL, bcontrol = list()) {
+    convergence = "manual", target = "stan", save.lvs = FALSE, wiggle = NULL,
+    wiggle.sd = 0.1, jags.ic = FALSE, seed = NULL, bcontrol = list()) {
 
     dotdotdot <- list(...)
     std.lv <- ifelse(any(names(dotdotdot) == "std.lv"), dotdotdot$std.lv, FALSE)
@@ -881,8 +903,8 @@ bcfa <- bsem <- function(..., cp = "srs", dp = NULL,
 bgrowth <- function(..., cp = "srs", dp = NULL,
     n.chains = 3, burnin, sample, adapt,
     mcmcfile = FALSE, mcmcextra = list(), inits = "prior",
-    convergence = "manual", target = "stan", save.lvs = FALSE,
-    jags.ic = FALSE, seed = NULL, bcontrol = list()) {
+    convergence = "manual", target = "stan", save.lvs = FALSE, wiggle = NULL,
+    wiggle.sd = 0.1, jags.ic = FALSE, seed = NULL, bcontrol = list()) {
 
     dotdotdot <- list(...)
     std.lv <- ifelse(any(names(dotdotdot) == "std.lv"), dotdotdot$std.lv, FALSE)

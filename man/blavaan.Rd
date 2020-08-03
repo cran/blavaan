@@ -9,13 +9,13 @@ blavaan(..., cp = "srs",
     dp = NULL, n.chains = 3, burnin, sample,
     adapt, mcmcfile = FALSE, mcmcextra = list(), inits = "prior",
     convergence = "manual", target = "stan", save.lvs = FALSE,
-    jags.ic = FALSE, seed = NULL, bcontrol = list())
+    wiggle = NULL, wiggle.sd = 0.1, jags.ic = FALSE, seed = NULL, bcontrol = list())
 }
 \arguments{
 \item{...}{Default lavaan arguments.  See \code{\link{lavaan}}.}
-\item{cp}{Handling of prior distributions on covariance parameters: possible values are \code{"srs"} or
-    \code{"fa"}.  Option \code{"srs"} is more flexible and better from a
-    theoretical standpoint, but it is also slower.}
+\item{cp}{Handling of prior distributions on covariance parameters:
+  possible values are \code{"srs"} (default) or \code{"fa"}.  Option
+  \code{"fa"} is only available for \code{target="jags"}.}
 \item{dp}{Default prior distributions on different types of
     parameters, typically the result of a call to \code{dpriors()}.
     See the \code{dpriors()} help file for more information.}
@@ -49,10 +49,10 @@ blavaan(..., cp = "srs",
     for example the output of the \code{paramaterEstimates()} function,
     the values of the \code{est} or \code{start} or \code{ustart} column
     (whichever is found first) will be extracted.}
-\item{convergence}{If \code{"auto"}, parameters will be
-  sampled until convergence is achieved (via \code{autorun.jags}). In
+\item{convergence}{Useful only for \code{target="jags"}. If \code{"auto"}, parameters are
+  sampled until convergence is achieved (via \code{autorun.jags()}). In
   this case, the arguments \code{burnin} and \code{sample} are passed to
-  \code{autorun.jags} as \code{startburnin} and \code{startsample},
+  \code{autorun.jags()} as \code{startburnin} and \code{startsample},
   respectively. Otherwise, parameters
   are sampled as specified by the user (or by the \code{run.jags}
   defaults).}
@@ -62,7 +62,13 @@ blavaan(..., cp = "srs",
   \code{"stanclassic"}, which sample latent variables and provide some
   greater functionality (because syntax is written "on the fly"). But
   they are slower and less efficient.}
-\item{save.lvs}{Should sample latent variables (factor scores) be saved? Logical; defaults to FALSE}
+\item{save.lvs}{Should sampled latent variables (factor scores) be
+  saved? Logical; defaults to FALSE}
+\item{wiggle}{Labels of equality-constrained parameters that should be
+  "approximately" equal. Can also be "intercepts", "loadings",
+  "regressions", "means".}
+\item{wiggle.sd}{The prior sd (of normal distribution) to be used in approximate equality
+  constraints.}
 \item{jags.ic}{Should DIC be computed the JAGS way, in addition to the BUGS way? Logical; defaults to FALSE}
 \item{seed}{A vector of length \code{n.chains} (for target
   \code{"jags"}) or an integer (for target \code{"stan"}) containing random
