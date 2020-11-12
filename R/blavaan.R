@@ -15,6 +15,7 @@ blavaan <- function(...,  # default lavaan arguments
                     save.lvs           = FALSE,
                     wiggle             = NULL,
                     wiggle.sd          = 0.1,
+                    prisamp            = FALSE,
                     jags.ic            = FALSE,
                     seed               = NULL,
                     bcontrol         = list()
@@ -48,14 +49,27 @@ blavaan <- function(...,  # default lavaan arguments
 
     # multilevel functionality not available
     if("cluster" %in% dotNames) stop("blavaan ERROR: two-level models are not yet available.")
-
+    if("ordered" %in% dotNames) stop("blavaan ERROR: ordinal models are not yet available.")
+  
+    # prior predictives only for stan
+    if(prisamp) {
+      if(target != 'stan') stop("blavaan ERROR: prior predictives currently only work for target='stan'.")
+      if(!('test' %in% dotdotdot)) dotdotdot$test <- 'none'
+    }
+  
     # wiggle sd
-    if(wiggle.sd <= 0L) stop("blavaan ERROR: wiggle.sd must be > 0.")
+    if(any(wiggle.sd <= 0L)) stop("blavaan ERROR: wiggle.sd must be > 0.")
 
     if(length(wiggle) > 0 & target == 'stancond') stop(paste0("blavaan ERROR: wiggle is currently not available for target ", target))
 
+    if(length(wiggle.sd) > 1){
+      if(target != 'stan') stop("blavaan ERROR: parameter-specific wiggle.sd is only available for target='stan'")
+      
+      if(length(wiggle.sd) != length(wiggle)) stop("blavaan ERROR: length of wiggle.sd must match length of wiggle")
+    }
+      
     # no current functionality to generate initial values from approximately-equal prior
-    if(length(wiggle) > 0 & target %in% c('stanclassic', 'jags')) inits <- "simple"
+    if(length(wiggle) > 0 & target %in% c('stanclassic', 'jags') & inherits(inits, 'character')) inits <- "simple"
   
     # ensure rstan/runjags are here. if target is not installed but
     # the other is, then use the other instead.
@@ -110,7 +124,7 @@ blavaan <- function(...,  # default lavaan arguments
       dotdotdot <- dotdotdot[-cplocs]; dotNames <- dotNames[-cplocs]
     }
     ## cannot use lavaan inits with fa priors; FIXME?
-    if(cp == "fa" & is.character(inits)){
+    if(cp == "fa" & inherits(inits, 'character')){
       if(inits[1] %in% c("simple", "default")) inits <- "jags"
     }
     if(cp == "fa" & grepl("stan", target)){
@@ -255,7 +269,14 @@ blavaan <- function(...,  # default lavaan arguments
     if(lavInspect(LAV, 'categorical')) {
         stop("blavaan ERROR: models with ordered variables are not yet available.")
     }
-    
+
+    # save.lvs in a model with no lvs
+    if(save.lvs){
+        clv <- lavInspect(LAV, 'cov.lv')
+        if(is.list(clv)) clv <- clv[[1]]
+        if(nrow(clv) == 0) warning("blavaan WARNING: save.lvs=TRUE, but there are no lvs in the model.")
+    }
+        
     # turn warnings back on by default
     LAV@Options$warn <- origwarn
 
@@ -441,7 +462,7 @@ blavaan <- function(...,  # default lavaan arguments
                 l2s <- try(lav2stanmarg(lavobject = LAV, dp = dp,
                                         n.chains = n.chains,
                                         inits = initsin, wiggle = wiggle,
-                                        wiggle.sd = wiggle.sd),
+                                        wiggle.sd = wiggle.sd, prisamp = prisamp),
                            silent = TRUE)
 
                 if(!inherits(l2s, "try-error")){
@@ -458,6 +479,12 @@ blavaan <- function(...,  # default lavaan arguments
                     jagtrans <- try(do.call("stanmarg_data", ldargs), silent = TRUE)
 
                     if(inherits(jagtrans, "try-error")) stop(jagtrans)
+
+                    ## add lkj for unrestricted psi
+                    if(jagtrans$fullpsi == 1L){
+                      psirows <- which(l2s$lavpartable$mat == "lvrho")
+                      lavpartable$prior[as.numeric(rownames(l2s$lavpartable))[psirows]] <- paste0("lkj_corr(", jagtrans$psi_r_alpha[1], ")")
+                    }
                     
                     jagtrans <- list(data = jagtrans,
                                      monitors = c("ly_sign",
@@ -478,31 +505,12 @@ blavaan <- function(...,  # default lavaan arguments
         }
 
         if(!inherits(jagtrans, "try-error")){
-            if(mcmcfile){
-                dir.create(path=jagdir, showWarnings=FALSE)
-                fext <- ifelse(target=="jags", "jag", "stan")
-                fnm <- paste0(jagdir, "/sem.", fext)
-                if(target=="stan"){
-                    cat(stanmodels$stanmarg@model_code, file = fnm)
-                } else {
-                    cat(jagtrans$model, file = fnm)
-                }
-                if(target=="jags"){
-                    save(jagtrans, file = paste(jagdir, "/semjags.rda",
-                                                sep=""))
-                } else {
-                    stantrans <- jagtrans
-                    save(stantrans, file = paste(jagdir, "/semstan.rda",
-                                                 sep=""))
-                }
-            }
-
             ## add extras to monitor, if specified
             sampparms <- jagtrans$monitors
             if("monitor" %in% names(mcmcextra)){
                 sampparms <- c(sampparms, mcmcextra$monitor)
             }
-            if(save.lvs) sampparms <- c(sampparms, "eta")
+            if(save.lvs & target != "stan") sampparms <- c(sampparms, "eta")
 
             if(initsin == "jags"){
                 jagtrans$inits <- vector("list", n.chains)
@@ -523,6 +531,25 @@ blavaan <- function(...,  # default lavaan arguments
                 }
             }
 
+            if(mcmcfile){
+                dir.create(path=jagdir, showWarnings=FALSE)
+                fext <- ifelse(target=="jags", "jag", "stan")
+                fnm <- paste0(jagdir, "/sem.", fext)
+                if(target=="stan"){
+                    cat(stanmodels$stanmarg@model_code, file = fnm)
+                } else {
+                    cat(jagtrans$model, file = fnm)
+                }
+                if(target=="jags"){
+                    save(jagtrans, file = paste(jagdir, "/semjags.rda",
+                                                sep=""))
+                } else {
+                    stantrans <- jagtrans
+                    save(stantrans, file = paste(jagdir, "/semstan.rda",
+                                                 sep=""))
+                }
+            }
+          
             if(target == "jags"){
               rjarg <- with(jagtrans, list(model = paste(model),
                                            monitor = sampparms, 
@@ -593,7 +620,7 @@ blavaan <- function(...,  # default lavaan arguments
                                                      sep=""))
                     }
                 }
-                stop("blavaan ERROR: problem with MCMC estimation.  The model syntax and data have been exported.")
+                stop("blavaan ERROR: problem with MCMC estimation. The model syntax and data have been exported.")
             }
         } else {
             print(jagtrans)
@@ -631,6 +658,15 @@ blavaan <- function(...,  # default lavaan arguments
                     ## defined variables come from delta method:
                     lavpartable$est <- lav_model_get_parameters(lavmodel = lavmodel, type = "user", extra = TRUE)
                 }
+                ## lvs now in R instead of Stan
+                if(save.lvs & target == "stan"){
+                    stanlvs <- samp_lvs(res, lavmodel, parests$lavpartable, jagtrans$data)
+                    if(dim(stanlvs)[3L] > 0){
+                        lvsumm <- as.matrix(rstan::monitor(stanlvs, print=FALSE))
+                        cmatch <- match(colnames(stansumm), colnames(lvsumm))
+                        stansumm <- rbind(stansumm, lvsumm[,cmatch])
+                    }
+                }
                 # burnin + sample already defined, will be saved in
                 # @external so summary() can use it:
                 #burnin <- wrmup
@@ -643,6 +679,7 @@ blavaan <- function(...,  # default lavaan arguments
             attr(x, "converged") <- FALSE
             lavpartable$est <- lavpartable$start
             stansumm <- NULL
+            stanlvs <- NULL
         }
         attr(x, "control") <- bcontrol
 
@@ -654,7 +691,7 @@ blavaan <- function(...,  # default lavaan arguments
                 if(target == "jags"){
                     fullpmeans <- summary(make_mcmc(res))[[1]][,"Mean"]
                 } else {
-                    fullpmeans <- rstan::summary(res)$summary[,"mean"]
+                    fullpmeans <- stansumm[,"mean"] #rstan::summary(res)$summary[,"mean"]
                 }
                 cfx <- get_ll(fullpmeans, lavmodel = lavmodel, lavpartable = lavpartable,
                               lavsamplestats = lavsamplestats, lavoptions = lavoptions,
@@ -700,6 +737,9 @@ blavaan <- function(...,  # default lavaan arguments
       }
       
       if(save.lvs) {
+        if(target == "stan"){
+          lavmcmc <- make_mcmc(res, stanlvs) ## add on lvs
+        }
         csamplls <- samp_lls(res, lavmodel, lavpartable,
                              lavsamplestats, lavoptions, lavcache,
                              lavdata, lavmcmc, lavobject = LAV,
@@ -728,7 +768,8 @@ blavaan <- function(...,  # default lavaan arguments
     lavvcov <- list()
     VCOV <- NULL
     if(jag.do.fit){
-      dsd <- diag(parests$sd[names(parests$sd) %in% colnames(parests$vcorr)])
+      dsd <- parests$sd[names(parests$sd) %in% colnames(parests$vcorr)]
+      if(length(dsd) > 1) dsd <- diag(dsd)
       VCOV <- dsd %*% parests$vcorr %*% dsd
       rownames(VCOV) <- colnames(VCOV) <- colnames(parests$vcorr)
       #lavjags <- c(lavjags, list(vcov = VCOV))
@@ -808,7 +849,10 @@ blavaan <- function(...,  # default lavaan arguments
                     origpt = lavpartable, inits = jagtrans$inits,
                     pxpt = jagtrans$pxpartable, burnin = burnin,
                     sample = sample)
-    if(grepl("stan", target)) extslot <- c(extslot, list(stansumm = stansumm))
+    if(grepl("stan", target)){
+      extslot <- c(extslot, list(stansumm = stansumm))
+      if(save.lvs & target=="stan") extslot <- c(extslot, list(stanlvs = stanlvs))
+    }
     if(jags.ic) extslot <- c(extslot, list(sampkls = sampkls))
     if(save.lvs) {
       extslot <- c(extslot, list(cfx = cfx, csamplls = csamplls))
@@ -860,7 +904,8 @@ bcfa <- bsem <- function(..., cp = "srs", dp = NULL,
     n.chains = 3, burnin, sample, adapt,
     mcmcfile = FALSE, mcmcextra = list(), inits = "prior",
     convergence = "manual", target = "stan", save.lvs = FALSE, wiggle = NULL,
-    wiggle.sd = 0.1, jags.ic = FALSE, seed = NULL, bcontrol = list()) {
+    wiggle.sd = 0.1, prisamp = FALSE, jags.ic = FALSE, seed = NULL,
+    bcontrol = list()) {
 
     dotdotdot <- list(...)
     std.lv <- ifelse(any(names(dotdotdot) == "std.lv"), dotdotdot$std.lv, FALSE)
@@ -904,7 +949,8 @@ bgrowth <- function(..., cp = "srs", dp = NULL,
     n.chains = 3, burnin, sample, adapt,
     mcmcfile = FALSE, mcmcextra = list(), inits = "prior",
     convergence = "manual", target = "stan", save.lvs = FALSE, wiggle = NULL,
-    wiggle.sd = 0.1, jags.ic = FALSE, seed = NULL, bcontrol = list()) {
+    wiggle.sd = 0.1, prisamp = FALSE, jags.ic = FALSE, seed = NULL,
+    bcontrol = list()) {
 
     dotdotdot <- list(...)
     std.lv <- ifelse(any(names(dotdotdot) == "std.lv"), dotdotdot$std.lv, FALSE)

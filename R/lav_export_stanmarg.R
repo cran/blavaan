@@ -136,7 +136,11 @@ matattr <- function(free, est, constraint, mat, Ng, std.lv, wig, ...) {
             psign <- min(parnums)
             ## if equality constraint, sign must involve the
             ## "free" parameter
-            if (wskel[psign,1] == 1L) psign <- wskel[psign,2]
+            if (wskel[psign,1] == 1L) {
+              psign <- wskel[psign,2]
+            } else {
+              psign <- psign - sum(wskel[1:(psign-1),1] == 1)
+            }
             sign[parnums, 1] <- 1L
             sign[parnums, 2] <- psign
           }
@@ -144,14 +148,14 @@ matattr <- function(free, est, constraint, mat, Ng, std.lv, wig, ...) {
       }
     }
   }
-  
+
   out <- list(matskel = matskel, free2 = free2, free = free, wskel = wskel,
               sign = sign)
 
   return(out)
 }
 
-lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=NULL) {
+lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=NULL, prisamp=FALSE) {
   ## extract model and data characteristics from lavaan object
   dat <- list()
   opts <- lavInspect(lavobject, 'options')
@@ -161,6 +165,7 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
   YX <- lavobject@Data@X
   nvar <- ncol(YX[[1]])
   dat$N <- lavInspect(lavobject, 'nobs')
+  dat$pri_only <- prisamp
 
   ## lavobject@SampleStats@missing.flag is TRUE when missing='ml',
   ## regardless of whether data are missing
@@ -531,6 +536,7 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
                    free2 = lyfree2, sign = dat$lam_y_sign,
                    dest = dest)
 
+    dat$fullpsi <- 0L
     dat$Psi_r_skeleton <- res$matskel
     dat$w10skel <- res$wskel
     dat$psi_r_sign <- res$sign
@@ -541,6 +547,11 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
       fpars <- res$wskel[1:veclen,1] == 0 | res$wskel[1:veclen,3] == 1
       nfree <- c(nfree, list(lvrho = sum(fpars)))
       freeparnums[ptrows[fpars]] <- 1:sum(fpars)
+    }
+    ## check for completely unrestricted correlation matrix, for lkj
+    fpars <- sapply(res$free2, function(x) as.numeric(x[lower.tri(x)]))
+    if (length(unlist(fpars)) > 0) {
+      if (all(!duplicated(fpars)) & all(fpars > 0) & all(res$wskel[,1] == 0)) dat$fullpsi <- 1L
     }
   } else {
     dat$Psi_r_skeleton <- array(0, dim = c(Ng, 0, 0))
@@ -644,7 +655,7 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
   if (length(wig) > 0) {
     ## assign prior to wiggle params, (mean value is handled in stan)
     needpri <- (lavpartable$prior == "") & (lavpartable$plabel %in% wig)
-    lavpartable$prior[needpri] <- paste0("normal(0,", wiggle.sd, ")")
+    lavpartable$prior[needpri] <- wigls$stanpris[wigls$stanpris != ""]
     dat$wigind <- 1L
   }
 
@@ -664,6 +675,13 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
     for (i in 1:length(ini)) {
       nmidx <- match(names(ini[[i]]), mapping)
       names(ini[[i]]) <- names(mapping)[nmidx]
+      if(dat$fullpsi) {
+        ## remove Psi_r_free because handled as corr_mat
+        ini[[i]]$Psi_r_free <- array(0, 0)
+        psidim <- dim(dat$Psi_skeleton)[2]
+        psimat <- array(diag(1, psidim), dim = c(psidim, psidim, dat$Ng))
+        ini[[i]]$Psi_r_mat <- aperm(psimat, perm = c(3, 1, 2))
+      }
     }
   } else {
     ini <- NULL
@@ -798,7 +816,7 @@ coeffun_stanmarg <- function(lavpartable, lavfree, free2, lersdat, rsob, fun = "
       }
     }
 
-    vcorr <- cor(draw_mat[,rowidx2])
+    vcorr <- cor(draw_mat[, rowidx2, drop=FALSE])
 
     names(sdvec) <- colnames(vcorr)
 

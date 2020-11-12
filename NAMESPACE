@@ -15,7 +15,7 @@ importFrom("stats",
            "predict",
            "update",
            "anova",
-           "vcov", "nobs")
+           "vcov", "nobs", "cov2cor")
 
 importFrom("graphics",
            "plot", "hist", "pairs", "legend", "par", "plot.new",
@@ -82,6 +82,8 @@ importFrom("bayesplot",
            ## "mcmc_trace_highlight", "mcmc_violin")
 
 import(Rcpp)
+
+importFrom("RcppParallel", "CxxFlags", "RcppParallelLibs")
 
 import(rstantools)
 

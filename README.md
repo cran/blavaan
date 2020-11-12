@@ -1,5 +1,9 @@
 # blavaan
 
+<!-- badges: start -->
+[![R build status](https://github.com/ecmerkle/blavaan/workflows/R-CMD-check/badge.svg)](https://github.com/ecmerkle/blavaan/actions)
+<!-- badges: end -->
+
 blavaan is a free, open source R package for Bayesian latent variable analysis.  It relies on JAGS and Stan to estimate models via MCMC.
 
 The blavaan functions and syntax are similar to lavaan. For example, consider the Political Democracy example from Bollen (1989):
@@ -26,16 +30,14 @@ fit <- bsem(model, data = PoliticalDemocracy)
 summary(fit)
 ```
 
-The development version of blavaan (containing updates not yet on CRAN) can be installed via either of the following commands. Compilation is required in both cases; this may be a problem for users who currently rely on a binary version of blavaan from CRAN.
+The development version of blavaan (containing updates not yet on CRAN) can be installed via the command below. Compilation is required; this may be a problem for users who currently rely on a binary version of blavaan from CRAN.
 
 ```
-# from github:
 remotes::install_github("ecmerkle/blavaan", INSTALL_opts = "--no-multiarch")
-
-# from website:
-install.packages("blavaan", repos = "http://faculty.missouri.edu/~merklee", type = "source")
 ```
 
 For further information, see:
+
+Merkle, E. C., Fitzsimmons, E., Uanhoro, J., & Goodrich, B. [Efficient Bayesian structural equation modeling in Stan](https://arxiv.org/abs/2008.07733). arXiv 2008.07733.
 
 Merkle, E. C., & Rosseel, Y. (2018). [blavaan: Bayesian structural equation models via parameter expansion](https://doi.org/10.18637/jss.v085.i04). Journal of Statistical Software, 85(4), 1–30.

@@ -91,6 +91,7 @@ test_that("blavaan object methods work", {
 
     ## plots
     expect_silent(p <- plot(fitstan, showplot = FALSE))
+    expect_false(any(p$data$value[grep('~~', p$data$parameter)] < 0)) # check of parameter labels
     expect_silent(p <- plot(fitstan, 1:4, showplot = FALSE))
     expect_silent(p <- plot(fitstan, plot.type = "hist", showplot = FALSE))
     expect_silent(p <- plot(fitstan, 1:4, plot.type = "dens", showplot = FALSE))
@@ -110,10 +111,18 @@ test_that("blavaan object methods work", {
   }
 
   ## blavFit + ppmc
-  ppmc_res <- ppmc(fitstan)
+  discFUN <- list(global = function(fit) {
+    fitMeasures(fit, fit.measures = c("cfi","rmsea","srmr","chisq"))
+  },
+  std.cov.resid = function(fit) lavResiduals(fit, zstat = FALSE,
+                                             summary = FALSE)$`1`$cov)
+  ppmc_res <- ppmc(fitstan, discFUN = discFUN)
   expect_s4_class(ppmc_res, "blavPPMC")
-  ppmc_summ <- summary(ppmc_res)
+  ppmc_summ <- summary(ppmc_res, "global", cent = "EAP")
   expect_s3_class(ppmc_summ, "lavaan.data.frame")
+  ppmc_summ <- summary(ppmc_res, "std.cov.resid", cent = "MAP",
+                       to.data.frame = TRUE, sort.by = "MAP",
+                       decreasing = TRUE)
   bf_res <- blavFitIndices(fitstan)
   expect_s4_class(bf_res, "blavFitIndices")
   expect_s3_class(summary(bf_res), "lavaan.data.frame")

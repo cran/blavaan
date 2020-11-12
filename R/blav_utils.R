@@ -35,6 +35,8 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
       ## to avoid warnings from mnormt::pd.solve
       covmat <- lapply(covmat, function(x){
         class(x) <- "matrix"
+        zvar <- which(diag(x) == 0L)
+        if(length(zvar > 0)) diag(x)[zvar] <- 1e-4
         x})
 
       ngroups <- lavsamplestats@ngroups
@@ -200,7 +202,7 @@ samp_lls <- function(lavjags        = NULL,
 
     nchain <- length(lavmcmc)
 
-    loop.args <- list(X = 1:nsamps, FUN = function(i){
+    loop.args <- list(X = 1:nsamps, future.seed = TRUE, FUN = function(i){
       tmpmat <- matrix(NA, nchain, 2)
       for(j in 1:nchain){
         tmpmat[j,1:2] <- get_ll(lavmcmc[[j]][itnums[i],],
@@ -341,7 +343,7 @@ set_blocks <- function(partable){
 eval_prior <- function(pricom, thetstar, pxname){
     ## check for truncation and [sd]/[var] modifiers
     trun <- which(pricom == "T")
-    sdvar <- which(pricom %in% c("[sd]","[var]"))
+    sdvar <- which(pricom %in% c("[sd]","[var]","[prec]"))
 
     if(length(trun) > 0 | length(sdvar) > 0){
         snip <- min(c(trun, sdvar))
@@ -366,9 +368,11 @@ eval_prior <- function(pricom, thetstar, pxname){
     ## thetstar modifications:
     ## convert to precision or sd, vs variance (depending on prior)
     if(grepl("theta", pxname) | grepl("psi", pxname)){
-        ## FIXME assumes correlation prior under srs is dbeta
-        if(length(sdvar) == 0 & pricom[1] != "dbeta") thetstar <- 1/thetstar
+        ## FIXME? assumes correlation prior under srs is beta or unif
+        if(length(sdvar) == 0 & !(grepl("beta", pricom[1])) &
+         !(grepl("unif", pricom[1]))) thetstar <- 1/thetstar
         if(any(grepl("\\[sd", pricom))) thetstar <- sqrt(thetstar)
+        if(any(grepl("\\[prec", pricom))) thetstar <- 1/thetstar
     }
     ## dt() in R assumes mean=0, precision=1
     if(pricom[1] == "dt"){
@@ -421,7 +425,7 @@ dist2r <- function(priors, target){
         pridist <- sapply(prisplit, function(x) x[1])
         newdist <- rosetta$RFunction[match(pridist, rosetta$StanFunction)]
         for(i in 1:length(newdist)){
-            prisplit[[i]][1] <- newdist[i]
+            if(!is.na(newdist[i])) prisplit[[i]][1] <- newdist[i]
         }
 
         out <- prisplit
@@ -595,11 +599,19 @@ fill_eta <- function(postsamp, lavmodel, lavpartable, lavsamplestats, lavdata){
     etamat <- matrix(etavec, lavsamplestats@ntotal, foundlvs)
     if(foundlvs < nlv) etamat <- cbind(etamat, matrix(0, lavsamplestats@ntotal, (nlv - foundlvs)))
 
-    ngroups <- lavsamplestats@ngroups
+    ## fulleta needs to have rows for any excluded cases
+    if(lavdata@norig > lavsamplestats@ntotal){
+      fulleta <- matrix(NA, sum(unlist(lavdata@norig)), ncol(etamat))
+      empties <- as.numeric(sapply(lavdata@Mp, function(x) x$empty.idx))
+      fulleta[-empties,] <- etamat
+    } else {
+      fulleta <- etamat
+    }
 
+    ngroups <- lavsamplestats@ngroups
     eta <- vector("list", ngroups)
     for(g in 1:ngroups){
-      eta[[g]] <- etamat[lavdata@case.idx[[g]], 1:nlv, drop = FALSE]
+      eta[[g]] <- fulleta[lavdata@case.idx[[g]], 1:nlv, drop = FALSE]
 
       ## fill in eta with dummys, if needed
       dummyov <- c(lavmodel@ov.x.dummy.ov.idx[[g]], lavmodel@ov.y.dummy.ov.idx[[g]])
@@ -628,43 +640,7 @@ kl_und <- function(mn0, mn1, cov0, invcov0, cov1, invcov1,
   (1/2) * (kl01 + kl10)
 }
 
-## now defunct:
-## get various fit metrics from a fitted model for each
-## posterior draw
-samp_idx <- function(lavjags        = NULL,
-                     lavmodel       = NULL,
-                     lavpartable    = NULL,
-                     lavsamplestats = NULL,
-                     lavoptions     = NULL,
-                     lavcache       = NULL,
-                     lavdata        = NULL,
-                     lavmcmc        = NULL,
-                     thin           = 1,
-                     measure        = "logl"){
-    itnums <- sampnums(lavjags, thin = thin)
-    nsamps <- length(itnums)
-    lavmcmc <- make_mcmc(lavjags)
-
-    nchain <- length(lavmcmc)
-    idxmat <- matrix(NA, nsamps, nchain)
-
-    for(i in 1:nsamps){
-        for(j in 1:nchain){
-            idxmat[i,j] <- get_ll(lavmcmc[[j]][itnums[i],],
-                                  lavmodel,
-                                  lavpartable,
-                                  lavsamplestats,
-                                  lavoptions,
-                                  lavcache,
-                                  lavdata,
-                                  measure)[1]
-        }
-    }
-
-    idxmat
-}
-
-make_mcmc <- function(mcmcout){
+make_mcmc <- function(mcmcout, stanlvs = NULL){
   ## extract mcmc draws from jags/stan object
   if(inherits(mcmcout, "runjags")){
     lavmcmc <- mcmcout$mcmc
@@ -676,6 +652,11 @@ make_mcmc <- function(mcmcout){
     lavmcmc <- lapply(seq(dim(lavmcmc)[2]), function(x) lavmcmc[,x,])
     reord <- match(rownames(tmpsumm$summary), colnames(lavmcmc[[1]]))
     lavmcmc <- lapply(lavmcmc, function(x) x[,reord])
+
+    if(is.array(stanlvs)){
+      stanlvs <- lapply(seq(dim(stanlvs)[2]), function(x) stanlvs[,x,])
+      lavmcmc <- lapply(1:length(lavmcmc), function(x) cbind(lavmcmc[[x]], stanlvs[[x]]))
+    }
   }
   lavmcmc
 }
@@ -719,53 +700,61 @@ wiglabels <- function(lavpartable, wiggle, wiggle.sd, target = "stan"){
         })
       out
     } else {
-      stop("blavaan ERROR: poorly-specified wiggle argument (cannot be used on variances).")
+      stop("blavaan ERROR: poorly-specified wiggle argument.")
     }
   })
 
   ## fix list nesting, in case group.equal was used
   outlist <- NULL
+  outsd <- NULL
   if(length(tmplabs) == 1 & inherits(tmplabs[[1]], "list")){
     tmplabs <- tmplabs[[1]]
   }
 
+  if(length(wiggle.sd) == 1) wiggle.sd <- rep(wiggle.sd, length(tmplabs))
+  
   for(i in 1:length(tmplabs)){
     if(inherits(tmplabs[[i]], "list")){
       tmpelem <- tmplabs[[i]]
     } else {
       tmpelem <- list(tmplabs[[i]])
     }
-    if(length(tmpelem[[1]]) > 1){
-      outlist <- c(outlist, tmpelem)
+    multpars <- which(sapply(tmpelem, length) > 1)
+    if(length(multpars) > 0){
+      outlist <- c(outlist, tmpelem[multpars])
+      outsd <- c(outsd, rep(wiggle.sd[i], length(tmpelem[multpars])))
     }
   }
 
   ## prior for partable
   if(!("prior" %in% names(lavpartable))) lavpartable$prior <- rep("", length(lavpartable$lhs))
+  stanpris <- lavpartable$prior
   for(i in 1:length(outlist)){
     tmprows <- which(lavpartable$plabel %in% outlist[[i]])
     eqrows <- NULL
     if(target == "stan"){
       parname <- with(lavpartable, paste0(mat[tmprows[1]], "[", group[tmprows[1]], ",",
                                           row[tmprows[1]], ",", col[tmprows[1]], "]"))
-      wigpri <- paste0("normal(", parname, ",", wiggle.sd, ")")
+      wigpri <- paste0("normal(", parname, ",", outsd[i], ")")
+      spri <- paste0("normal(0,", outsd[i], ")")
     } else {
       dname <- ifelse(grepl("stan", target), "normal(", "dnorm(")
       wigsc <- ifelse(grepl("stan", target), wiggle.sd, wiggle.sd^(-2))
       parname <- with(lavpartable, paste0(mat[tmprows[1]], "[", row[tmprows[1]], ",",
                                           col[tmprows[1]], ",", group[tmprows[1]], "]"))
-      wigpri <- paste0(dname, parname, ",", wigsc, ")")
+      wigpri <- spri <- paste0(dname, parname, ",", wigsc, ")")
 
       ## nuke == rows
       eqrows <- with(lavpartable, which(op == "==" & (rhs %in% plabel[tmprows])))
     }
     lavpartable$prior[tmprows] <- c(lavpartable$prior[tmprows[1]],
                                     rep(wigpri, length(tmprows) - 1))
+    stanpris[tmprows] <- c(stanpris[tmprows[1]], rep(spri, length(tmprows) - 1))
     if(length(eqrows) > 0){
       lavpartable <- lavpartable[-eqrows,]
     }
   }
 
-  list(outlist = outlist, lavpartable = lavpartable)
+  list(outlist = outlist, lavpartable = lavpartable, stanpris = stanpris)
 }
   

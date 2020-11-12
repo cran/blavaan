@@ -8,8 +8,8 @@ bcfa(..., cp = "srs",
      dp = NULL, n.chains = 3, burnin, sample,
      adapt, mcmcfile = FALSE, mcmcextra = list(), inits = "prior",
      convergence = "manual", target = "stan", save.lvs = FALSE,
-     wiggle = NULL, wiggle.sd = 0.1, jags.ic = FALSE, seed = NULL,
-     bcontrol = list())
+     wiggle = NULL, wiggle.sd = 0.1, prisamp = FALSE, jags.ic = FALSE,
+     seed = NULL, bcontrol = list())
 }
 \arguments{
 \item{...}{Default lavaan arguments.  See \code{\link{lavaan}}.}
@@ -33,23 +33,23 @@ bcfa(..., cp = "srs",
   code to insert in the JAGS/Stan model syntax, and the \code{monitor} object
   is a character vector containing extra JAGS/Stan parameters to sample.}
 \item{inits}{If it is a character string, the options are currently
-    \code{"simple"}, \code{"Mplus"}, \code{"prior"} (default), and
-    \code{"jags"}.  In the first two
+    \code{"simple"}, \code{"Mplus"}, \code{"prior"} (default), or \code{"jags"}.  In the first two
     cases, parameter values are set as though they will be estimated via
     ML (see \code{\link{lavaan}}).  The starting parameter value for
     each chain is then perturbed from the original values through the
-    addition of uniform noise.  If \code{"prior"} is used, the starting
+    addition of random uniform noise.  If \code{"prior"} is used, the starting
     parameter values are obtained based on the prior distributions
     (while also trying to ensure that the starting values will not crash
     the model estimation).  If \code{"jags"}, no starting values are
-    specified and JAGS will choose values on its own.
-    If \code{start} is a fitted
-    object of class \code{\linkS4class{lavaan}}, the estimated values of
-    the corresponding parameters will be extracted, then perturbed in
-    the manner described above. If it is a model list,
-    for example the output of the \code{paramaterEstimates()} function,
-    the values of the \code{est} or \code{start} or \code{ustart} column
-    (whichever is found first) will be extracted.}
+    specified and JAGS will choose values on its own (and this will probably
+    crash Stan targets). You can also supply
+    a list of starting values for each chain, where the list format can
+    be obtained from, e.g., \code{blavInspect(fit, "inits")}. Finally,
+    you can specify starting values in a similar way to lavaan,
+    using the lavaan \code{start} argument (see the lavaan
+    documentation for all the options there). In this case, you should also set
+    \code{inits="simple"}, and be aware that the same starting values
+    will be used for each chain.}
 \item{convergence}{Useful only for \code{target="jags"}. If \code{"auto"}, parameters are
   sampled until convergence is achieved (via \code{autorun.jags()}). In
   this case, the arguments \code{burnin} and \code{sample} are passed to
@@ -69,7 +69,10 @@ bcfa(..., cp = "srs",
   "approximately" equal. Can also be "intercepts", "loadings",
   "regressions", "means".}
 \item{wiggle.sd}{The prior sd (of normal distribution) to be used in approximate equality
-  constraints.}
+  constraints. Can be one value, or (for target="stan") a numeric vector
+  of values that is the same length as wiggle.}
+\item{prisamp}{Should samples be drawn from the prior, instead of the
+  posterior (\code{target="stan"} only)? Logical; defaults to FALSE}
 \item{jags.ic}{Should DIC be computed the JAGS way, in addition to the BUGS way? Logical; defaults to FALSE}
 \item{seed}{A vector of length \code{n.chains} (for target
   \code{"jags"}) or an integer (for target \code{"stan"}) containing random
