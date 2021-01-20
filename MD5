@@ -1,4 +1,4 @@
-790db94a9e6fd989f27e9ee6359f0487 *DESCRIPTION
+af39344fdbf8c6defc5f0efc7da9e89b *DESCRIPTION
 a532646030580d9920f5af7ab2a32c70 *NAMESPACE
 d331407a19c64284bc742aadc7b7f51e *NEWS
 be8bb39b5618c2843ad576dd22765133 *R/00class.R
@@ -38,7 +38,7 @@ a50a9698aede0a8eab05d46aa460c951 *inst/stanfuns/sem_lv.stan
 20ac6ec14507d9c20b796c784eab9393 *inst/stanfuns/sem_lv_missing.stan
 aae3f8bd7b489a6042d2ee353be13855 *inst/stanfuns/sem_mean.stan
 c6a0ac199847984cf1ddcfac4cdb9636 *inst/stanfuns/sem_mean_eta.stan
-4b3172a38487bfe374d67bdd3b75763e *inst/testdata/sysdata.rda
+fd198ddf8b9f1c720a8a6a63823f3a2a *inst/testdata/sysdata.rda
 2bcb774921827f0cc4c3aeab662a5988 *man/bcfa.Rd
 c84bf9d0b00864a52c2343354704dcb2 *man/bgrowth.Rd
 b9b55a7de2a12d68f589fd146aebf742 *man/blavCompare.Rd
@@ -57,6 +57,8 @@ a3c536b2d099bd7abf9e5c33539f153a *src/Makevars.win
 65d51c23643ae569342ea312d10738ff *src/init.cpp
 0ae76234cc0bacf4d108bff24e7d43a6 *src/stan_files/chunks/license.stan
 d18017c4b72b984fc15805c317a82ad1 *src/stan_files/stanmarg.stan
+a04f98b63adbe12bc0e0d40d776914c2 *tests/lavExport/sem.stan
+ed3311409dd35d51e02b29573aa06af6 *tests/lavExport/semstan.rda
 07597ec727ab1ee3008f0e0ff5a8137a *tests/testthat.R
 fe9d55247e76a3de55db058122bfdca6 *tests/testthat/tests.blavaan.R
 f872107495f5648ff68ebaa78f121feb *tests/testthat/tests.blavaanobject-methods.R
