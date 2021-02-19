@@ -164,7 +164,7 @@ blavaan <- function(...,  # default lavaan arguments
     if(length(warn.idx) > 0L) {
         warning("blavaan WARNING: the following arguments have no effect:\n",
                 "                   ", 
-                paste(lavArgsOverride[warn.idx], collapse = " "))
+                paste(lavArgsOverride[warn.idx], collapse = " "), call. = FALSE)
     }
   
     # if do.fit supplied, save it for jags stuff
@@ -249,7 +249,7 @@ blavaan <- function(...,  # default lavaan arguments
     if(length(warn.idx) > 0L) {
         warning("blavaan WARNING: the following arguments are ignored:\n",
                 "                   ",
-                paste(lavArgsRemove[warn.idx], collapse = " "), "\n")
+                paste(lavArgsRemove[warn.idx], collapse = " "), call. = FALSE)
     }
 
     # call lavaan
@@ -274,7 +274,7 @@ blavaan <- function(...,  # default lavaan arguments
     if(save.lvs){
         clv <- lavInspect(LAV, 'cov.lv')
         if(is.list(clv)) clv <- clv[[1]]
-        if(nrow(clv) == 0) warning("blavaan WARNING: save.lvs=TRUE, but there are no lvs in the model.")
+        if(nrow(clv) == 0) warning("blavaan WARNING: save.lvs=TRUE, but there are no lvs in the model.", call. = FALSE)
     }
         
     # turn warnings back on by default
@@ -303,7 +303,7 @@ blavaan <- function(...,  # default lavaan arguments
     if(length(ineq) > 0) {
         LAV@ParTable <- lapply(LAV@ParTable, function(x) x[-ineq])
         if(inherits(mcmcfile, "logical")) mcmcfile <- TRUE
-        warning("blavaan WARNING: blavaan does not currently handle inequality constraints.\n try modifying the exported MCMC syntax.")
+        warning("blavaan WARNING: blavaan does not currently handle inequality constraints.\n try modifying the exported MCMC syntax.", call. = FALSE)
     }
     eqs <- which(LAV@ParTable$op == "==")
     if(length(eqs) > 0) {
@@ -338,13 +338,13 @@ blavaan <- function(...,  # default lavaan arguments
     if(con.cov) LAV@Options$auto.cov.lv.x <- FALSE
     
     # if std.lv, truncate the prior of each lv's first loading
+    loadpt <- LAV@ParTable$op == "=~"
+    lvs <- unique(LAV@ParTable$lhs[loadpt])
     if(LAV@Options$std.lv){
         if(cp == "fa") stop("blavaan ERROR: 'fa' prior strategy cannot be used with std.lv=TRUE.")
         if(!prispec){
             LAV@ParTable$prior <- rep("", length(LAV@ParTable$id))
         }
-        loadpt <- LAV@ParTable$op == "=~"
-        lvs <- unique(LAV@ParTable$lhs[loadpt])
         fload <- NULL
         if(length(lvs) > 0){
             for(i in 1:length(lvs)){
@@ -365,6 +365,16 @@ blavaan <- function(...,  # default lavaan arguments
                     }
                 }
             }
+        }
+    } else {
+        ## check for lvs fixed to 1
+        if(any(LAV@ParTable$op == "~~" &
+               LAV@ParTable$free == 0 &
+               LAV@ParTable$lhs == LAV@ParTable$rhs &
+               LAV@ParTable$ustart == 1L &
+               LAV@ParTable$lhs %in% lvs)){
+            warning("blavaan WARNING: If you are manually fixing lv variances to 1 for identification, ",
+                    "please use std.lv=TRUE.", call. = FALSE)
         }
     }
 
@@ -718,7 +728,7 @@ blavaan <- function(...,  # default lavaan arguments
 
       ## warn if psrf is large
       if(!attr(x, "converged") && lavoptions$warn) {
-        warning("blavaan WARNING: at least one parameter has a psrf > 1.2.")
+        warning("blavaan WARNING: at least one parameter has a psrf > 1.2.", call. = FALSE)
       }
     }
 
@@ -892,7 +902,7 @@ blavaan <- function(...,  # default lavaan arguments
 
     if(jag.do.fit & lavoptions$warn){
         if(any(blavInspect(blavaan, 'neff') < 100)){
-            warning("blavaan WARNING: Small effective sample sizes (< 100) for some parameters.")
+            warning("blavaan WARNING: Small effective sample sizes (< 100) for some parameters.", call. = FALSE)
         }
     }
     

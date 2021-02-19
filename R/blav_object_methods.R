@@ -159,8 +159,12 @@ function(object) {
 })
 
 
-setMethod("summary", "blavaan",
-function(object, header       = TRUE,
+summary.blavaan <- function(object, ...) {
+    long.summary(object, ...)
+}
+
+long.summary <- function(object,
+                 header       = TRUE,
                  fit.measures = FALSE,
                  estimates    = TRUE,
                  ci           = TRUE,
@@ -185,7 +189,7 @@ function(object, header       = TRUE,
     # only if requested, the fit measures
     if(fit.measures) {
         if(object@Options$test == "none") {
-            warning("lavaan WARNING: fit measures not available if test = \"none\"\n\n")
+            warning("lavaan WARNING: fit measures not available if test = \"none\"", call. = FALSE)
         } else {
             #print.fit.measures( fitMeasures(object, fit.measures="default") )
             # TODO: define proper print function for custom fit measures
@@ -238,7 +242,7 @@ function(object, header       = TRUE,
             PE$ci.upper[peentry] <- object@external$mcmcout$HPD[newpt$jagpnum[pte2],'Upper95']
         } else {
             parsumm <- rstan::summary(object@external$mcmcout)
-            if('2.5%' %in% colnames(parsumm) & '97.5%' %in% colnames(parsumm)){
+            if('2.5%' %in% colnames(parsumm[[1]]) & '97.5%' %in% colnames(parsumm[[1]])){
                 PE$ci.lower[peentry] <- parsumm$summary[newpt$stansumnum[pte2],'2.5%']
                 PE$ci.upper[peentry] <- parsumm$summary[newpt$stansumnum[pte2],'97.5%']
             } else {
@@ -289,9 +293,9 @@ function(object, header       = TRUE,
           PE$Post.Mode <- rep(NA, nrow(PE))
           if(jagtarget){
             PE$Post.Mode[peentry] <- object@external$mcmcout$summaries[newpt$jagpnum[pte2],'Mode']
-            if(all(is.na(PE$Post.Mode))) warning("blavaan WARNING: Posterior modes require installation of the modeest package.")
+            if(all(is.na(PE$Post.Mode))) warning("blavaan WARNING: Posterior modes require installation of the modeest package.", call. = FALSE)
           } else {
-            warning("blavaan WARNING: Posterior modes not available for target='stan'.")
+            warning("blavaan WARNING: Posterior modes not available for target='stan'.", call. = FALSE)
           }
         }
         if(bf){
@@ -320,7 +324,9 @@ function(object, header       = TRUE,
 
         print(PE, nd = nd)
     } # parameter estimates
-})
+}
+
+setMethod("summary", "blavaan", summary.blavaan)
 
 
 # NB not absolutely necessary, except for
@@ -365,6 +371,7 @@ plot.blavaan <- function(x, pars=NULL, plot.type="trace", showplot=TRUE, ...){
     invisible(pl)
 }
 
+#setMethod("plot", "blavaan", plot.blavaan)
 
 ## function/environment for y-axis label of runjags plots
 labelfun <- function(var){
