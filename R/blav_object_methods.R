@@ -188,7 +188,8 @@ long.summary <- function(object,
 
     # only if requested, the fit measures
     if(fit.measures) {
-        if(object@Options$test == "none") {
+        bopts <- blavInspect(object, "options")
+        if(bopts$test == "none" & bopts$target != "stan") {
             warning("lavaan WARNING: fit measures not available if test = \"none\"", call. = FALSE)
         } else {
             #print.fit.measures( fitMeasures(object, fit.measures="default") )
@@ -317,7 +318,11 @@ long.summary <- function(object,
         ## require "est"
         #names(PE)[penames == "est"] <- "Post.Mean"
         #PE$est <- PE$Post.Mean
-        names(PE)[penames == "se"] <- "Post.SD"
+        if(blavInspect(object, 'options')$prisamp){
+          names(PE)[penames == "se"] <- "Pri.SD"
+        } else {
+          names(PE)[penames == "se"] <- "Post.SD"
+        }
         names(PE)[penames == "ci.lower"] <- "pi.lower"
         names(PE)[penames == "ci.upper"] <- "pi.upper"
         names(PE)[penames == "psrf"] <- "Rhat"

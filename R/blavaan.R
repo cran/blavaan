@@ -49,12 +49,14 @@ blavaan <- function(...,  # default lavaan arguments
 
     # multilevel functionality not available
     if("cluster" %in% dotNames) stop("blavaan ERROR: two-level models are not yet available.")
-    if("ordered" %in% dotNames) stop("blavaan ERROR: ordinal models are not yet available.")
   
     # prior predictives only for stan
     if(prisamp) {
       if(target != 'stan') stop("blavaan ERROR: prior predictives currently only work for target='stan'.")
-      if(!('test' %in% dotdotdot)) dotdotdot$test <- 'none'
+      if(!('test' %in% dotNames)) {
+        dotdotdot$test <- 'none'
+        dotNames <- c(dotNames, "test")
+      }
     }
   
     # wiggle sd
@@ -158,7 +160,7 @@ blavaan <- function(...,  # default lavaan arguments
     }
   
     # which arguments do we override?
-    lavArgsOverride <- c("meanstructure", "missing", "estimator")
+    lavArgsOverride <- c("meanstructure", "missing", "estimator", "conditional.x")
     # always warn?
     warn.idx <- which(lavArgsOverride %in% dotNames)
     if(length(warn.idx) > 0L) {
@@ -190,9 +192,17 @@ blavaan <- function(...,  # default lavaan arguments
     if("ordered" %in% dotNames |
        any(apply(dotdotdot$data, 2, function(x) inherits(x, "ordered")))){
       dotdotdot$missing <- "pairwise" # needed to get missing patterns
+      
+      if("parameterization" %in% names(dotdotdot)){
+        if(dotdotdot$parameterization == "delta"){
+          warning("blavaan WARNING: the parameterization argument has no effect; theta parameterization will be used.", call. = FALSE)
+        }
+      }
     }
+    dotdotdot$parameterization <- "theta"
     dotdotdot$estimator <- "default"
-
+    dotdotdot$conditional.x <- FALSE
+  
     # jags args
     if("debug" %in% dotNames) {
         if(dotdotdot$debug)  {
@@ -265,11 +275,6 @@ blavaan <- function(...,  # default lavaan arguments
         stop("blavaan ERROR: full data are required. consider using kd() from package semTools.")
     }
 
-    # ordinal functionality not available
-    if(lavInspect(LAV, 'categorical')) {
-        stop("blavaan ERROR: models with ordered variables are not yet available.")
-    }
-
     # save.lvs in a model with no lvs
     if(save.lvs){
         clv <- lavInspect(LAV, 'cov.lv')
@@ -286,19 +291,13 @@ blavaan <- function(...,  # default lavaan arguments
     # check for conflicting mv names
     namecheck(LAV@Data@ov.names[[1]])
 
-    # deal with ordinal data, turn some options off
-    ordmod <- LAV@Options$categorical
-    if(ordmod){
-      ## this picks up variables of class ordered that were not
-      ## explicitly specified via ordered argument
-      dotdotdot$ordered <- LAV@Data@ordered
-      if(blavmis == "fi"){
-        stop("blavaan ERROR: missing='fi' cannot be used with ordinal data.")
-      }
-      dotdotdot$test <- "none"
-      dotNames <- names(dotdotdot)
-    }  
-  
+    # ordinal only for stan
+    ordmod <- lavInspect(LAV, 'categorical')
+    if(ordmod) {
+        stop("blavaan ERROR: ordinal models are not (yet) available.")
+        if(target != "stan") stop("blavaan ERROR: ordinal variables only work for target='stan'.")
+    }
+        
     ineq <- which(LAV@ParTable$op %in% c("<",">"))
     if(length(ineq) > 0) {
         LAV@ParTable <- lapply(LAV@ParTable, function(x) x[-ineq])
@@ -418,6 +417,11 @@ blavaan <- function(...,  # default lavaan arguments
     lavoptions$estimator <- "Bayes"
     lavoptions$se        <- "standard"
     lavoptions$test <- "standard"
+    if(ordmod) {
+        ## FIXME: remove when ppp is available:
+        cat("blavaan NOTE: ordinal models are under development and will use test=\"none\".\n\n")
+        lavoptions$test <- "none"
+    }
     if("test" %in% dotNames) {
         if(dotdotdot$test == "none") lavoptions$test <- "none"
     } else {
@@ -433,6 +437,7 @@ blavaan <- function(...,  # default lavaan arguments
     lavoptions$missing   <- "ml"
     lavoptions$cp        <- cp
     lavoptions$dp        <- dp
+    lavoptions$prisamp   <- prisamp
     lavoptions$target    <- target
 
     verbose <- lavoptions$verbose
@@ -495,16 +500,17 @@ blavaan <- function(...,  # default lavaan arguments
                       psirows <- which(l2s$lavpartable$mat == "lvrho")
                       lavpartable$prior[as.numeric(rownames(l2s$lavpartable))[psirows]] <- paste0("lkj_corr(", jagtrans$psi_r_alpha[1], ")")
                     }
-                    
+
                     jagtrans <- list(data = jagtrans,
                                      monitors = c("ly_sign",
                                            #"lx_sign",
                                            "bet_sign", "g_sign",
                                            "Theta_cov", "Theta_var",
-                                           "Theta_x_cov", "Theta_x_var",
+                                           #"Theta_x_cov", "Theta_x_var",
                                            "Psi_cov", "Psi_var",
                                            #"Ph_cov", "Ph_var",
-                                           "Nu_free", "Alpha_free"))
+                                           "Nu_free", "Alpha_free", "Tau_free",
+                                           "log_lik"))
                     if("init" %in% names(l2s)){
                       jagtrans <- c(jagtrans, list(inits = l2s$init))
                     }
@@ -693,25 +699,26 @@ blavaan <- function(...,  # default lavaan arguments
         }
         attr(x, "control") <- bcontrol
 
-        if(!("ordered" %in% dotNames)) {
-            attr(x, "fx") <- get_ll(lavmodel = lavmodel, lavpartable = lavpartable,
-                                    lavsamplestats = lavsamplestats, lavoptions = lavoptions,
-                                    lavcache = lavcache, lavdata = lavdata)[1]
-            if(save.lvs & jag.do.fit) {
-                if(target == "jags"){
-                    fullpmeans <- summary(make_mcmc(res))[[1]][,"Mean"]
-                } else {
-                    fullpmeans <- stansumm[,"mean"] #rstan::summary(res)$summary[,"mean"]
-                }
-                cfx <- get_ll(fullpmeans, lavmodel = lavmodel, lavpartable = lavpartable,
-                              lavsamplestats = lavsamplestats, lavoptions = lavoptions,
-                              lavcache = lavcache, lavdata = lavdata,
-                              lavobject = LAV, conditional = TRUE)[1]
+        ## log-likelihoods
+        tmplo <- lavoptions
+        tmplo$target <- "jags" ## to ensure computation in R, vs extraction of the
+                               ## log-likehoods from Stan
+        attr(x, "fx") <- get_ll(lavmodel = lavmodel, lavpartable = lavpartable,
+                                lavsamplestats = lavsamplestats, lavoptions = tmplo,
+                                lavcache = lavcache, lavdata = lavdata,
+                                lavobject = LAV)[1]
+        if(save.lvs & jag.do.fit) {
+            if(target == "jags"){
+                fullpmeans <- summary(make_mcmc(res))[[1]][,"Mean"]
             } else {
-                cfx <- NULL
+                fullpmeans <- stansumm[,"mean"] #rstan::summary(res)$summary[,"mean"]
             }
+            cfx <- get_ll(fullpmeans, lavmodel = lavmodel, lavpartable = lavpartable,
+                          lavsamplestats = lavsamplestats, lavoptions = lavoptions,
+                          lavcache = lavcache, lavdata = lavdata,
+                          lavobject = LAV, conditional = TRUE)[1]
         } else {
-            attr(x, "fx") <- as.numeric(NA)
+            cfx <- NULL
         }
     }
 
@@ -737,7 +744,7 @@ blavaan <- function(...,  # default lavaan arguments
       cat("Computing posterior predictives...\n")
       lavmcmc <- make_mcmc(res)
       samplls <- samp_lls(res, lavmodel, lavpartable, lavsamplestats,
-                          lavoptions, lavcache, lavdata, lavmcmc)
+                          lavoptions, lavcache, lavdata, lavmcmc, lavobject = LAV)
       if(jags.ic) {
         sampkls <- samp_kls(res, lavmodel, lavpartable,
                             lavsamplestats, lavoptions, lavcache,
@@ -807,6 +814,7 @@ blavaan <- function(...,  # default lavaan arguments
                                 lavdata             = lavdata,
                                 lavcache            = lavcache,
                                 lavjags             = lavjags,
+                                lavobject           = LAV,
                                 samplls             = samplls,
                                 jagextra            = mcmcextra,
                                 stansumm            = stansumm)

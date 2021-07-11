@@ -18,18 +18,29 @@ blav_fit_measures <- function(object, fit.measures = "all",
     # has the model converged?
     if(object@Fit@npar > 0L && !object@optim$converged &&
        class(object@external$mcmcout) != "NULL") {
-        warning("blavaan WARNING: the chains may not have converged.")
+        warning("blavaan WARNING: the chains may not have converged.", call. = FALSE)
     }
 
     # do we have a test statistic?
-    if(object@Options$test == "none") {
-        stop("blavaan ERROR: fit measures cannot be obtained when test=\"none\"")
+    bopts <- blavInspect(object, "options")
+    if(bopts$test == "none") {
+        if(bopts$target != "stan") {
+            stop("blavaan ERROR: fit measures cannot be obtained when test=\"none\"")
+        } else {
+            warning("blavaan WARNING: not all fit measures are available when test=\"none\"",
+                    call. = FALSE)
+        }
     }
 
+    if(bopts$prisamp) {
+        warning("blavaan WARNING: These metrics are based on prior samples so may be meaningless.",
+                call. = FALSE)
+    }
+  
     if("all" %in% fit.measures) {
-       class.flag <- TRUE
+        class.flag <- TRUE
     } else {
-       class.flag <- FALSE
+        class.flag <- FALSE
     }
 
     # collect info from the lavaan slots
@@ -131,10 +142,10 @@ blav_fit_measures <- function(object, fit.measures = "all",
     }
     
     # posterior predictive p
-    if("ppp" %in% fit.measures) {
+    if("ppp" %in% fit.measures & bopts$test != "none") {
         indices["ppp"] <- object@Fit@test[[2]]$stat
     }
-    if(any(c("bic", "dic", "p_dic") %in% fit.measures)) {
+    if(any(c("bic", "dic", "p_dic") %in% fit.measures & bopts$test != "none")) {
         df <- 2*(object@Fit@fx - mean(as.numeric(object@external$samplls[,,1])))
         indices["bic"] <- -2*object@Fit@fx + npar*log(N)
         indices["dic"] <- -2*object@Fit@fx + 2*df
@@ -166,10 +177,14 @@ blav_fit_measures <- function(object, fit.measures = "all",
     if(any(c("waic", "p_waic", "looic", "p_loo") %in% fit.measures)) {
         lavopt <- object@Options
         lavopt$estimator <- "ML"
-        casells <- case_lls(object@external$mcmcout, object@Model,
-                            object@ParTable, object@SampleStats,
-                            lavopt, object@Cache,
-                            object@Data, make_mcmc(object@external$mcmcout))
+        if(lavopt$target == "stan"){
+          casells <- loo::extract_log_lik(object@external$mcmcout)
+        } else {
+          casells <- case_lls(object@external$mcmcout, object@Model,
+                              object@ParTable, object@SampleStats,
+                              lavopt, object@Cache,
+                              object@Data, make_mcmc(object@external$mcmcout))
+        }
 
         fitres <- waic(casells)
         fitse <- fitres$estimates[,'SE']
@@ -197,7 +212,7 @@ blav_fit_measures <- function(object, fit.measures = "all",
                                 object@ParTable, object@SampleStats,
                                 lavopt, object@Cache,
                                 object@Data, samps,
-                                lavobject=object, conditional = TRUE)
+                                lavobject = object, conditional = TRUE)
 
             fitres <- waic(casells)
             fitse <- fitres$estimates[,'SE']
@@ -215,7 +230,7 @@ blav_fit_measures <- function(object, fit.measures = "all",
             indices["se_loo_cond"] <- fitse[["looic"]]
         }
     }
-    if("margloglik" %in% fit.measures) {
+    if("margloglik" %in% fit.measures & test != "none") {
         indices["margloglik"] <- object@test[[1]]$stat
     }
     

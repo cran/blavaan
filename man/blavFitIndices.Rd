@@ -3,6 +3,7 @@
 \alias{blavFitIndices-class}
 \alias{show,blavFitIndices-method}
 \alias{summary,blavFitIndices-method}
+\alias{summary.bfi}
 \title{SEM Fit Indices for Bayesian SEM}
 \description{
 This function provides a posterior distribution of some \eqn{\chi^2}-based fit
@@ -13,7 +14,9 @@ blavFitIndices(object, thin = 1L, pD = c("loo","waic","dic"),
                fit.measures = "all", baseline.model = NULL)
 
 ## S4 method for signature 'blavFitIndices'
-\S4method{summary}{blavFitIndices}(object, central.tendency = c("mean","median","mode"),
+\S4method{summary}{blavFitIndices}(object, ...)
+
+summary.bfi(object, central.tendency = c("mean","median","mode"),
         hpd = TRUE, prob = .90)
 }
 \arguments{
@@ -51,14 +54,18 @@ blavFitIndices(object, thin = 1L, pD = c("loo","waic","dic"),
     If a \code{baseline.model} is provided, incremental fit indices (BCFI,
     BTLI, or BNFI) can be requested in \code{fit.measures}. Ignored if
     \code{rescale = "MCMC"}.}
-  \item{central.tendency}{\code{character} indicating which statistics should
+  \item{...}{Additional arguments to the summary method:}
+  \item{central.tendency}{Takes values "mean", "median", "mode", indicating which statistics should
     be used to characterize the location of the posterior distribution. By
     default, all 3 statistics are returned. The posterior mean is labeled
-    \code{EAP} for \emph{expected a posteriori} estimate, and the mode is
-    labeled \code{MAP} for \emph{modal a posteriori} estimate.}
-  \item{hpd}{\code{logical} indicating whether to calculate the highest
-    posterior density (HPD) credible interval for each fit index.}
-  \item{prob}{The "confidence" level of the credible interval(s).}
+    EAP for \emph{expected a posteriori} estimate, and the mode is
+    labeled MAP for \emph{modal a posteriori}
+    estimate.}
+  \item{hpd}{A \code{logical} indicating whether to calculate the highest
+    posterior density (HPD) credible interval for each fit
+    index (defaults to TRUE).}
+  \item{prob}{The "confidence" level of the
+  credible interval(s) (defaults to 0.9).}
 }
 \value{
   An S4 object of class \code{blavFitIndices} consisting of 2 slots:
@@ -108,12 +115,12 @@ HS.model <- ' visual  =~ x1 + x2 + x3
               textual =~ x4 + x5 + x6
               speed   =~ x7 + x8 + x9 '
 ## fit target model
-fit1 <- bcfa(HS.model, data = HolzingerSwineford1939, cp = "fa",
+fit1 <- bcfa(HS.model, data = HolzingerSwineford1939, 
              n.chains = 2, burnin = 1000, sample = 1000)
 
 ## fit null model to calculate CFI, TLI, and NFI
 null.model <- c(paste0("x", 1:9, " ~~ x", 1:9), paste0("x", 1:9, " ~ 1"))
-fit0 <- bcfa(null.model, data = HolzingerSwineford1939, cp = "fa",
+fit0 <- bcfa(null.model, data = HolzingerSwineford1939, 
              n.chains = 2, burnin = 1000, sample = 1000)
 
 ## calculate posterior distributions of fit indices

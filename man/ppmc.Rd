@@ -3,6 +3,7 @@
 \alias{blavPPMC-class}
 \alias{show,blavPPMC-method}
 \alias{summary,blavPPMC-method}
+\alias{summary.ppmc}
 \alias{plot.blavPPMC}
 \alias{hist.blavPPMC}
 \alias{pairs.blavPPMC}
@@ -14,7 +15,9 @@ function that can be applied to a \code{\linkS4class{lavaan}} model.}
 \usage{
 ppmc(object, thin = 1, fit.measures = c("srmr","chisq"), discFUN = NULL)
 
-\S4method{summary}{blavPPMC}(object, discFUN, dist = c("obs","sim"),
+\S4method{summary}{blavPPMC}(object, ...)
+
+summary.ppmc(object, discFUN, dist = c("obs","sim"),
         central.tendency = c("mean","median","mode"),
         hpd = TRUE, prob = .95, to.data.frame = FALSE, diag = TRUE,
         sort.by = NULL, decreasing = FALSE)
@@ -129,12 +132,10 @@ HS.model <- ' visual  =~ x1 + x2 + x3
               textual =~ x4 + x5 + x6
               speed   =~ x7 + x8 + x9 '
 ## fit single-group model
-fit <- bcfa(HS.model, data = HolzingerSwineford1939, cp = "fa",
-            target = "jags", bcontrol = list(method = "rjparallel"),
+fit <- bcfa(HS.model, data = HolzingerSwineford1939, 
             n.chains = 2, burnin = 1000, sample = 500)
 ## fit multigroup model
-fitg <- bcfa(HS.model, data = HolzingerSwineford1939, cp = "fa",
-             target = "jags", bcontrol = list(method = "rjparallel"),
+fitg <- bcfa(HS.model, data = HolzingerSwineford1939,
              n.chains = 2, burnin = 1000, sample = 500, group = "school")
 
 

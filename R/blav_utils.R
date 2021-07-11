@@ -24,11 +24,14 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
     } else {
       implied <- lav_model_implied(lavmodel)
     }
-
+  
     ## check for missing, to see if we can easily get baseline ll for chisq
     mis <- FALSE
-    if(any(is.na(unlist(lavdata@X)))) mis <- TRUE
-
+    if(any(is.na(unlist(lavdata@X)))){
+      mis <- TRUE
+      lavmvh1 <- getFromNamespace("lav_mvnorm_missing_h1_estimate_moments", "lavaan")
+    }
+    
     if(measure[1] %in% c("logl", "chisq") & !mis){
         if(casewise){
             ll.samp <- rep(NA, sum(unlist(lavdata@nobs)))
@@ -117,6 +120,23 @@ get_ll <- function(postsamp       = NULL, # one posterior sample
             ## }
 
         }
+    } else if(measure[1] %in% c("logl", "chisq") & !casewise) {
+        if(lavoptions$target == "stan"){
+            tmpll <- NA # we'll get it from stan
+        } else {
+            tmpobj <- lavobject
+            tmpobj@implied <- lav_model_implied(lavmodel)
+            tmpll <- sum(llcont(tmpobj))
+        }
+        tmpsat <- 0
+        for(g in 1:length(implied$cov)){
+          ## high tolerance speed boost
+          tmpsat <- tmpsat + lavmvh1(Y = lavdata@X[[g]],
+                                     Mp = lavdata@Mp[[g]],
+                                     #max.iter = 20,
+                                     tol = 1e-2)$fx
+        }
+        ll.samp <- c(tmpll, tmpsat)
     } else {
         ## other measures require us to run lavaan
         lavoptions$se <- "none"
@@ -197,6 +217,16 @@ samp_lls <- function(lavjags        = NULL,
     llmat <- do.call("future_lapply", loop.args)
     llmat <- array(unlist(llmat), c(nchain, 2, nsamps)) ## logl + baseline logl
     llmat <- aperm(llmat, c(3,1,2))
+
+    if(lavoptions$target == "stan"){
+      ## the model log-likelihoods have already been computed in stan
+      lls <- loo::extract_log_lik(lavjags)
+      for(j in 1:nchain){
+        idx <- (j-1)*nsamps + itnums
+        llmat[itnums,j,1] <- rowSums(lls[idx,])
+      }
+    }
+    
     llmat
 }
 

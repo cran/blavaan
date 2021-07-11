@@ -4,7 +4,7 @@ importFrom("methods",
 importFrom("utils",
            # "sessionInfo",
            "packageDescription", "str", "write.table", "packageVersion",
-           "capture.output", "head", "tail")
+           "capture.output", "head", "tail", "getFromNamespace")
 
 importFrom("stats",
            "approx", "density", "median", "dnorm", "pnorm", "rgamma", "rnorm",
@@ -92,13 +92,15 @@ import(rstantools)
 
 export("blavaan", "bcfa", "bsem", "bgrowth", "dpriors", "BF", "blavCompare",
        "blavTech", "blavInspect", "blavFitIndices", "labelfun", "standardizedposterior",
-       "standardizedPosterior", "ppmc")
+       "standardizedPosterior", "ppmc", "blavPredict")
 
 S3method(plot, blavaan)
 S3method(summary, blavaan)
+S3method(summary, blavPPMC)
 S3method(plot, blavPPMC)
 S3method(hist, blavPPMC)
 S3method(pairs, blavPPMC)
-exportMethods("summary", "coef", "show")
+S3method(summary, blavFitIndices)
+exportMethods("summary", "coef", "show", "predict")
 
 useDynLib(blavaan, .registration = TRUE)
