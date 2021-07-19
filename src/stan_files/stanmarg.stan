@@ -172,10 +172,11 @@ data {
   int<lower=0> contidx[p + q - Nord]; // indexing of continuous variables
   int<lower=1> nlevs[Nord]; // how many levels does each ordinal variable have
   vector[ord ? max(nlevs) : 0] neach[Nord]; // how many times do we observe each level of each ordinal variable?
-  vector[p + q - Nord] YX[has_data ? Ntot : 0]; // continuous data
-  int YXo[has_data ? Ntot : 0, Nord]; // ordinal data
+  vector[p + q - Nord] YX[Ntot]; // continuous data
+  int YXo[Ntot, Nord]; // ordinal data
   int<lower=0> Nx[Np]; // number of fixed.x variables
   int<lower=0> Xvar[Np, max(Nx)]; // indexing of fixed.x variables
+  int<lower=0> Xdatvar[Np, max(Nx)]; // indexing of fixed.x in data (differs from Xvar when missing)
   int<lower=0, upper=1> has_cov;
   cov_matrix[p + q - Nord] S[Ng];     // sample covariance matrix among all continuous manifest variables NB!! multiply by (N-1) to use wishart lpdf!!
 
@@ -673,6 +674,19 @@ transformed parameters {
       }
     }
   }
+
+  // now move everything to the left, if missing
+  if (missing) {
+    int obsidx[p + q];
+    for (patt in 1:Np) {
+      obsidx = Obsvar[patt,];
+      for (i in startrow[patt]:endrow[patt]) {    
+	for (j in 1:Nobs[patt]) {
+	  YXstar[i,j] = YXstar[i,obsidx[j]];
+	}
+      }
+    }
+  }
 }
 model { // N.B.: things declared in the model block do not get saved in the output, which is okay here
 
@@ -684,19 +698,21 @@ model { // N.B.: things declared in the model block do not get saved in the outp
   if (has_data) {
     int obsidx[p + q];
     int xidx[max(Nx)];
+    int xdatidx[max(Nx)];
     int r1;
     int r2;
     int grpidx;
     for (mm in 1:Np) {
       obsidx = Obsvar[mm,];
       xidx = Xvar[mm,];
+      xdatidx = Xdatvar[mm,];
       r1 = startrow[mm];
       r2 = endrow[mm];
       grpidx = grpnum[mm];
       target += multi_normal_lpdf(YXstar[r1:r2,1:Nobs[mm]] | Mu[grpidx, obsidx[1:Nobs[mm]]], Sigma[grpidx, obsidx[1:Nobs[mm]], obsidx[1:Nobs[mm]]]);
 
       if (Nx[mm] > 0) {
-	target += -multi_normal_lpdf(YXstar[r1:r2,xidx[1:Nx[mm]]] | Mu[grpidx, xidx[1:Nx[mm]]], Sigma[grpidx, xidx[1:Nx[mm]], xidx[1:Nx[mm]]]);
+	target += -multi_normal_lpdf(YXstar[r1:r2,xdatidx[1:Nx[mm]]] | Mu[grpidx, xidx[1:Nx[mm]]], Sigma[grpidx, xidx[1:Nx[mm]], xidx[1:Nx[mm]]]);
       }
     }
   } else if (has_cov) {
@@ -745,6 +761,7 @@ model { // N.B.: things declared in the model block do not get saved in the outp
     }
   } else if (len_free[10] > 0) {
     target += beta_lpdf(Psi_r_free | psi_r_alpha, psi_r_beta);
+    target += log(2) * len_free[10]; // jacobian for moving from (0,1) to (-1,1)
   }
 }
 generated quantities { // these matrices are saved in the output but do not figure into the likelihood
@@ -816,15 +833,21 @@ generated quantities { // these matrices are saved in the output but do not figu
   Psi_var = Psi_sd_free .* Psi_sd_free;
 
   // log-likelihood
-  if (has_data) {
+  if (has_cov) {
+    for (g in 1:Ng) {
+      log_lik[g] =  wishart_lpdf(S[g] | N[g] - 1, Sigma[g]);
+    }
+  } else {
     int obsidx[p + q];
     int xidx[max(Nx)];
+    int xdatidx[max(Nx)];
     int r1;
     int r2;
     int grpidx;
     for (mm in 1:Np) {
       obsidx = Obsvar[mm,];
       xidx = Xvar[mm,];
+      xdatidx = Xdatvar[mm,];
       r1 = startrow[mm];
       r2 = endrow[mm];
       grpidx = grpnum[mm];
@@ -832,14 +855,10 @@ generated quantities { // these matrices are saved in the output but do not figu
 	log_lik[jj] = multi_normal_lpdf(YXstar[jj,1:Nobs[mm]] | Mu[grpidx, obsidx[1:Nobs[mm]]], Sigma[grpidx, obsidx[1:Nobs[mm]], obsidx[1:Nobs[mm]]]);
 
 	if (Nx[mm] > 0) {
-	  log_lik[jj] -= multi_normal_lpdf(YXstar[jj,xidx[1:Nx[mm]]] | Mu[grpidx, xidx[1:Nx[mm]]], Sigma[grpidx, xidx[1:Nx[mm]], xidx[1:Nx[mm]]]);
+	  log_lik[jj] += -multi_normal_lpdf(YXstar[jj,xdatidx[1:Nx[mm]]] | Mu[grpidx, xidx[1:Nx[mm]]], Sigma[grpidx, xidx[1:Nx[mm]], xidx[1:Nx[mm]]]);
 	}
       }
     }
-  } else if (has_cov) {
-    for (g in 1:Ng) {
-      log_lik[g] =  wishart_lpdf(S[g] | N[g] - 1, Sigma[g]);
-    }
   }
   
-} // end a with a completely blank line (not even whitespace)
+} // end with a completely blank line (not even whitespace)

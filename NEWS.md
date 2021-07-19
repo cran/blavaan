@@ -1,3 +1,8 @@
+# Version 0.3-17
+## New features
+* This is a maintenance release to correct major bugs from the previous version.
+
+
 # Version 0.3-16
 ## New features
 * blavPredict() function added for predicting latent variables and missing data.
@@ -5,6 +10,11 @@
 * Some posterior summaries are sped up. (and fitMeasures are available when test="none")
 
 * bug fixes from the previous version.
+
+##  Bugs/glitches discovered after the release:
+* For certain models with missing data, ppp-values are incorrect (sometimes equaling 1.0).
+
+* For target="stan", some multiple group models fail when some cases are missing all observed variables (reported by DeAnne Hunter).
 
 
 # Version 0.3-15
@@ -16,7 +26,7 @@
 ##  Bugs/glitches discovered after the release:
 * The summary() method for ppmc() and fitIndices() does not always work correctly.
 
-* A Jacobian was incorrect for target="stan", when (non-default) priors were placed on precisions or variances instead of standard deviations.
+* A Jacobian was incorrect for target="stan", when (non-default) priors were placed on precisions or variances instead of on standard deviations. This could impact estimates of posterior variability (reported by Roy Levy).
 
 
 # Version 0.3-14

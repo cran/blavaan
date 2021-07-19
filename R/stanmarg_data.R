@@ -176,7 +176,7 @@ check_priors <- function(lavpartable) {
 stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
                           miss, Np, Nobs, Obsvar, # missing
                           ord, Nord, ordidx, contidx, nlevs, neach, # ordinal
-                          Xvar, Nx, # fixed.x
+                          Xvar, Xdatvar, Nx, # fixed.x
                           startrow, endrow, save_lvs = FALSE, 
                           Lambda_y_skeleton, # skeleton matrices
                           Lambda_x_skeleton, Gamma_skeleton, B_skeleton,
@@ -215,6 +215,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$startrow <- startrow
   dat$endrow <- endrow
   dat$Xvar <- Xvar
+  dat$Xdatvar <- Xdatvar
   dat$Nx <- array(Nx, length(Nx))
 
   dat$YX <- YX
@@ -223,7 +224,6 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
 
   dat$has_data <- dat$has_cov <- 0L
   if (pri_only) {
-    dat$YX <- array(NA_real_, dim = c(0, ncol(YX)))
     tmparr <- array(dim = c(dat$Ng, ncol(YX), ncol(YX)))
     for (i in 1:Ng) {
       tmparr[i,,] <- diag(nrow=ncol(YX))
@@ -241,6 +241,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
         dat$S[i,,] <- (N[i] - 1) * S[[i]]
       }
       dat$YX <- array(NA_real_, dim = c(dat$Ntot, ncol(S)))
+      dat$YXo <- array(NA_real_, dim = c(0, ncol(YXo)))
     } else {
       dat$has_data <- 1L
 
