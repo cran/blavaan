@@ -2,6 +2,8 @@ lvgqs <- function(modmats, standata, getlvs = TRUE) {
   Ng <- length(modmats)
 
   ## stan data
+  ## FIXME for getlvs=FALSE, YX only contains continuous data so dimensions
+  ## are wrong below
   p <- standata$p
   q <- standata$q
   m <- standata$m
@@ -267,5 +269,5 @@ if(FALSE){
               mcmcfile = TRUE)
   load('lavExport/semstan.rda')
 
-  blavaan:::samp_lvs(fit@external$mcmcout, fit@Model, fit@ParTable, stantrans$data)
+  samp_lvs(fit@external$mcmcout, fit@Model, fit@ParTable, stantrans$data)
 }
