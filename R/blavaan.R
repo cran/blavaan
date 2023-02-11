@@ -9,7 +9,7 @@ blavaan <- function(...,  # default lavaan arguments
                     adapt              ,
                     mcmcfile            = FALSE,
                     mcmcextra           = list(),
-                    inits              = "prior",
+                    inits              = "simple",
                     convergence        = "manual",
                     target             = "stan",
                     save.lvs           = FALSE,
@@ -178,7 +178,8 @@ blavaan <- function(...,  # default lavaan arguments
     }
   
     # which arguments do we override?
-    lavArgsOverride <- c("meanstructure", "missing", "estimator", "conditional.x")
+    lavArgsOverride <- c("missing", "estimator", "conditional.x")
+    if(target != "stan") lavArgsOverride <- c(lavArgsOverride, "meanstructure")
     # always warn?
     warn.idx <- which(lavArgsOverride %in% dotNames)
     if(length(warn.idx) > 0L) {
@@ -211,12 +212,15 @@ blavaan <- function(...,  # default lavaan arguments
     # run for 1 iteration to obtain info about equality constraints, for npar
     dotdotdot$control <- list(iter.max = 1); dotdotdot$warn <- TRUE
     dotdotdot$optim.force.converged <- TRUE
-    dotdotdot$meanstructure <- TRUE
+    if(target != "stan") dotdotdot$meanstructure <- TRUE
     dotdotdot$missing <- "direct"   # direct/ml creates error? (bug in lavaan?)
-    if("ordered" %in% dotNames |
-       any(apply(dotdotdot$data, 2, function(x) inherits(x, "ordered")))){
+    ordmod <- FALSE
+    if("ordered" %in% dotNames) ordmod <- TRUE
+    if("data" %in% dotNames){
+        if(any(apply(dotdotdot$data, 2, function(x) inherits(x, "ordered")))) ordmod <- TRUE
+    }
+    if(ordmod){
       dotdotdot$missing <- "pairwise" # needed to get missing patterns
-      
       if("parameterization" %in% names(dotdotdot)){
         if(dotdotdot$parameterization == "delta"){
           warning("blavaan WARNING: the parameterization argument has no effect; theta parameterization will be used.", call. = FALSE)
@@ -294,21 +298,29 @@ blavaan <- function(...,  # default lavaan arguments
                 paste(lavArgsRemove[warn.idx], collapse = " "), call. = FALSE)
     }
 
+
+    if("sample.mean" %in% names(dotdotdot) && !("data" %in% names(dotdotdot))) stop('blavaan ERROR: sample.mean cannot currently be used in place of data')
+  
     # call lavaan
     mcdebug <- FALSE
     if("debug" %in% dotNames){
-      ## only debug mcmc stuff
-      mcdebug <- dotdotdot$debug
-      dotdotdot <- dotdotdot[-which(dotNames == "debug")]
+        ## only debug mcmc stuff
+        mcdebug <- dotdotdot$debug
+        dotdotdot <- dotdotdot[-which(dotNames == "debug")]
     }
     # for warnings related to setting up model/data:
     LAV <- do.call("lavaan", dotdotdot)
     dotdotdot$do.fit <- TRUE; dotdotdot$warn <- FALSE
+    if(LAV@Data@data.type != "moment" && target == "stan"){
+        ## if no missing, set missing = "listwise" to avoid meanstructure if possible
+        if(!any(is.na(unlist(lavInspect(LAV, 'data'))))) dotdotdot$missing <- "listwise"
+    }
+
     # for initial values/parameter setup:
     LAV <- do.call("lavaan", dotdotdot)
 
     if(LAV@Data@data.type == "moment") {
-        stop("blavaan ERROR: full data are required. consider using kd() from package semTools.")
+        if(target != "stan") stop('blavaan ERROR: full data are required for ', target, ' target.\n  Try target="stan", or consider using kd() from package semTools.')
     }
 
     # save.lvs in a model with no lvs
@@ -551,8 +563,10 @@ blavaan <- function(...,  # default lavaan arguments
                                            #"Theta_x_cov", "Theta_x_var",
                                            "Psi_cov", "Psi_var",
                                            #"Ph_cov", "Ph_var",
-                                           "Nu_free", "Alpha_free", "Tau_free",
-                                           "log_lik", "log_lik_sat", "ppp"))
+                                           "Nu_free", "Alpha_free", "Tau_free"))
+                    if(lavoptions$test != "none"){
+                      jagtrans$monitors <- c(jagtrans$monitors, "log_lik", "log_lik_sat", "ppp")
+                    }
 
                     if("init" %in% names(l2s)){
                       jagtrans <- c(jagtrans, list(inits = l2s$init))
@@ -761,7 +775,7 @@ blavaan <- function(...,  # default lavaan arguments
                 }
                 ## lvs now in R instead of Stan
                 if(save.lvs & target == "stan"){
-                    stanlvs <- samp_lvs(res, lavmodel, parests$lavpartable, jagtrans$data, lavoptions$categorical)
+                    stanlvs <- samp_lvs(res, lavmodel, parests$lavpartable, jagtrans$data, lavInspect(LAV, "categorical"))
                     if(dim(stanlvs)[3L] > 0){
                         lvsumm <- as.matrix(rstan::monitor(stanlvs, print=FALSE))
                         cmatch <- match(colnames(stansumm), colnames(lvsumm))
@@ -795,8 +809,7 @@ blavaan <- function(...,  # default lavaan arguments
         attr(x, "fx") <- get_ll(lavobject = LAV, standata = rjarg$data)[1]
         LAV@Options$target <- target
 
-
-        if(save.lvs & jag.do.fit & !ordmod) {
+        if(save.lvs && jag.do.fit && !ordmod && lavInspect(LAV, "meanstructure")) {
             if(target == "jags"){
                 fullpmeans <- summary(make_mcmc(res))[[1]][,"Mean"]
             } else {
@@ -819,8 +832,8 @@ blavaan <- function(...,  # default lavaan arguments
                         lavpartable$free > 0)
       if(any(lavpartable$psrf[psrfrows] > 1.2)) attr(x, "converged") <- FALSE
 
-      ## warn if psrf is large
-      if(!attr(x, "converged") && lavoptions$warn) {
+      ## warn if psrf is large and if we aren't getting the stan warnings
+      if(!attr(x, "converged") && lavoptions$warn && !grepl("stan", target)) {
         warning("blavaan WARNING: at least one parameter has a rhat > 1.2.", call. = FALSE)
       }
     }
@@ -832,7 +845,7 @@ blavaan <- function(...,  # default lavaan arguments
       lavmcmc <- make_mcmc(res)
       LAV@Options <- lavoptions
 
-      if(lavoptions$categorical) {
+      if(lavInspect(LAV, "categorical")) {
         LAV@external$mcmcdata <- rjarg$data
         casells <- case_lls(res, lavmcmc, lavobject = LAV)
         samplls <- array(0, dim = c(sample, n.chains, 2))
@@ -849,7 +862,7 @@ blavaan <- function(...,  # default lavaan arguments
         sampkls <- NA
       }
       
-      if(save.lvs & !ordmod) {
+      if(save.lvs && !ordmod && lavInspect(LAV, "meanstructure")) {
         if(target == "stan"){
           lavmcmc <- make_mcmc(res, stanlvs) ## add on lvs
         }
@@ -897,6 +910,10 @@ blavaan <- function(...,  # default lavaan arguments
 
     ## 8. "test statistics": marginal log-likelihood, dic
     TEST <- list()
+    domll <- TRUE
+    covres <- checkcovs(LAV)
+    ## in these cases, we cannot realibly evaluate the priors
+    if(ordmod | !(covres$diagpsi | covres$fullpsi) | !(covres$diagthet | covres$fullthet)) domll <- FALSE
     if(lavoptions$test != "none") { # && attr(x, "converged")) {
         TEST <- blav_model_test(lavmodel            = lavmodel,
                                 lavpartable         = lavpartable,
@@ -910,7 +927,8 @@ blavaan <- function(...,  # default lavaan arguments
                                 lavobject           = LAV,
                                 samplls             = samplls,
                                 jagextra            = mcmcextra,
-                                stansumm            = stansumm)
+                                stansumm            = stansumm,
+                                domll               = domll)
         if(verbose) cat(" done.\n")
     }
     timing$TEST <- (proc.time()[3] - start.time)
@@ -965,7 +983,7 @@ blavaan <- function(...,  # default lavaan arguments
       if(save.lvs & target=="stan") extslot <- c(extslot, list(stanlvs = stanlvs))
     }
     if(jags.ic) extslot <- c(extslot, list(sampkls = sampkls))
-    if(save.lvs & !ordmod) {
+    if(save.lvs && !ordmod && lavInspect(LAV, "meanstructure")) {
       extslot <- c(extslot, list(cfx = cfx, csamplls = csamplls))
       if(jags.ic) extslot <- c(extslot, list(csampkls = csampkls))
     }
@@ -1001,7 +1019,13 @@ blavaan <- function(...,  # default lavaan arguments
         lavInspect(blavaan, "post.check")
     }
 
-    if(jag.do.fit & lavoptions$warn & !prisamp & !usevb){
+    if(with(covres, !(diagpsi | fullpsi) | !(diagthet | fullthet))){
+        badmat <- "psi"
+        if(with(covres, !(diagthet | fullthet))) badmat <- "theta"
+        warning("blavaan WARNING: As specified, the ", badmat, " covariance matrix is neither diagonal nor unrestricted, so the actual prior might differ from the stated prior. See\n https://arxiv.org/abs/2301.08667", call. = FALSE)
+    }
+      
+    if(jag.do.fit & lavoptions$warn & !prisamp & !usevb & !grepl("stan", target)){
         if(any(blavInspect(blavaan, 'neff') < 100)){
             warning("blavaan WARNING: Small effective sample sizes (< 100) for some parameters.", call. = FALSE)
         }
@@ -1013,7 +1037,7 @@ blavaan <- function(...,  # default lavaan arguments
 ## cfa + sem
 bcfa <- bsem <- function(..., cp = "srs", dp = NULL,
     n.chains = 3, burnin, sample, adapt,
-    mcmcfile = FALSE, mcmcextra = list(), inits = "prior",
+    mcmcfile = FALSE, mcmcextra = list(), inits = "simple",
     convergence = "manual", target = "stan", save.lvs = FALSE, wiggle = NULL,
     wiggle.sd = 0.1, prisamp = FALSE, jags.ic = FALSE, seed = NULL,
     bcontrol = list()) {
@@ -1058,7 +1082,7 @@ bcfa <- bsem <- function(..., cp = "srs", dp = NULL,
 # simple growth models
 bgrowth <- function(..., cp = "srs", dp = NULL,
     n.chains = 3, burnin, sample, adapt,
-    mcmcfile = FALSE, mcmcextra = list(), inits = "prior",
+    mcmcfile = FALSE, mcmcextra = list(), inits = "simple",
     convergence = "manual", target = "stan", save.lvs = FALSE, wiggle = NULL,
     wiggle.sd = 0.1, prisamp = FALSE, jags.ic = FALSE, seed = NULL,
     bcontrol = list()) {
