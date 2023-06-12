@@ -58,9 +58,9 @@ blavaan <- function(...,  # default lavaan arguments
     # multilevel functionality not available
     if("cluster" %in% dotNames) stop("blavaan ERROR: two-level models are not yet available.")
   
-    # prior predictives only for stan
+    # prior sampling only for stan
     if(prisamp) {
-      if(target != 'stan') stop("blavaan ERROR: prior predictives currently only work for target='stan'.")
+      if(target != 'stan') stop("blavaan ERROR: prior sampling currently only work for target='stan'.")
       if(!('test' %in% dotNames)) {
         dotdotdot$test <- 'none'
         dotNames <- c(dotNames, "test")
@@ -300,7 +300,7 @@ blavaan <- function(...,  # default lavaan arguments
 
 
     if("sample.mean" %in% names(dotdotdot) && !("data" %in% names(dotdotdot))) stop('blavaan ERROR: sample.mean cannot currently be used in place of data')
-  
+
     # call lavaan
     mcdebug <- FALSE
     if("debug" %in% dotNames){
@@ -317,8 +317,11 @@ blavaan <- function(...,  # default lavaan arguments
     }
 
     # for initial values/parameter setup:
-    LAV <- do.call("lavaan", dotdotdot)
-
+    if(jag.do.fit) {
+        LAV2 <- try(do.call("lavaan", dotdotdot), silent = TRUE)
+        if(!inherits(LAV2, 'try-error')) LAV <- LAV2
+    }
+        
     if(LAV@Data@data.type == "moment") {
         if(target != "stan") stop('blavaan ERROR: full data are required for ', target, ' target.\n  Try target="stan", or consider using kd() from package semTools.')
     }
@@ -478,7 +481,6 @@ blavaan <- function(...,  # default lavaan arguments
     }
     if(!jag.do.fit){
       lavoptions$test <- "none"
-      lavoptions$se <- "none"
     }
     lavoptions$missing   <- "ml"
     lavoptions$cp        <- cp
@@ -802,6 +804,7 @@ blavaan <- function(...,  # default lavaan arguments
         LAV@ParTable <- lavpartable
         LAV@Model <- lavmodel
         LAV@external$mcmcout <- res
+        LAV@Options$se <- "standard"
         LAV@Options$target <- "jags" ## to ensure computation in R, vs extraction of the
                                      ## log-likehoods from Stan
         ## FIXME: modify so that fx is commensurate with logl from Stan

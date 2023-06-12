@@ -223,6 +223,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$Nx <- array(Nx, length(Nx))
   dat$emiter <- emiter
   dat$do_reg <- do_reg
+  dat$pri_only <- pri_only
   
   dat$YX <- YX
   dat$YXo <- YXo
@@ -333,7 +334,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   }
   tmpres <- group_sparse_skeleton(dThet)
   dat$len_w5 <- max(tmpres$g_len)
-  dat$w5 <- tmpres$w
+  dat$w5 <- sqrt(tmpres$w) # because we do SRS in the model
   dat$v5 <- tmpres$v
   dat$u5 <- tmpres$u
   dat$wg5 <- array(tmpres$g_len, length(tmpres$g_len))
@@ -381,7 +382,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   }
   tmpres <- group_sparse_skeleton(dPsi)
   dat$len_w9 <- max(tmpres$g_len)
-  dat$w9 <- tmpres$w
+  dat$w9 <- sqrt(tmpres$w) # because we do SRS in the model
   dat$v9 <- tmpres$v
   dat$u9 <- tmpres$u
   dat$wg9 <- array(tmpres$g_len, length(tmpres$g_len))

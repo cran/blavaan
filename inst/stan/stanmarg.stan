@@ -39,7 +39,7 @@ functions { // you can use these in R following `rstan::expose_stan_functions("f
   }
     
   vector fill_prior(vector free_elements, real[] pri_mean, int[,] eq_skeleton) {
-    int R = size(eq_skeleton);
+    int R = dims(eq_skeleton)[1];
     int eqelem = 0;
     int pos = 1;
     vector[num_elements(pri_mean)] out;
@@ -278,6 +278,7 @@ data {
   int<lower=0> Xvar[Np, p + q]; // indexing of fixed.x variables
   int<lower=0> Xdatvar[Np, p + q]; // indexing of fixed.x in data (differs from Xvar when missing)
   int<lower=0, upper=1> use_cov;
+  int<lower=0, upper=1> pri_only; // sample only from the prior?
   int<lower=0> emiter; // number of em iterations for saturated model in ppp (missing data only)
   int<lower=0, upper=1> use_suff; // should we compute likelihood via mvn sufficient stats?
   int<lower=0, upper=1> do_test; // should we do everything in generated quantities?
@@ -629,10 +630,10 @@ parameters {
   vector[len_free[3]] Gamma_free;
   vector[len_free[4]] B_free;
   vector<lower=0>[len_free[5]] Theta_sd_free;
-  vector<lower=0,upper=1>[len_free[7]] Theta_r_free; // to use beta prior
+  vector<lower=-1,upper=1>[len_free[7]] Theta_r_free; // to use beta prior
   vector<lower=0>[len_free[9]] Psi_sd_free;
   corr_matrix[m] Psi_r_mat[Ng * fullpsi];
-  vector<lower=0,upper=1>[fullpsi ? 0 : len_free[10]] Psi_r_free;
+  vector<lower=-1,upper=1>[fullpsi ? 0 : len_free[10]] Psi_r_free;
   vector[len_free[13]] Nu_free;
   vector[len_free[14]] Alpha_free;
   vector[len_free[15]] Tau_ufree;
@@ -684,7 +685,7 @@ transformed parameters {
     Gamma[g] = fill_matrix(Gamma_free, Gamma_skeleton[g], w3skel, g_start3[g], f_start3[g]);
     B[g] = fill_matrix(B_free, B_skeleton[g], w4skel, g_start4[g], f_start4[g]);
     Theta_sd[g] = fill_matrix(Theta_sd_free, Theta_skeleton[g], w5skel, g_start5[g], f_start5[g]);
-    T_r_lower[g] = fill_matrix(2*Theta_r_free - 1, Theta_r_skeleton[g], w7skel, g_start7[g], f_start7[g]);
+    T_r_lower[g] = fill_matrix(Theta_r_free, Theta_r_skeleton[g], w7skel, g_start7[g], f_start7[g]);
     Theta_r[g] = T_r_lower[g] + transpose(T_r_lower[g]) - diag_matrix(rep_vector(1, p));
     if (!use_cov) {
       Nu[g] = fill_matrix(Nu_free, Nu_skeleton[g], w13skel, g_start13[g], f_start13[g]);
@@ -698,7 +699,7 @@ transformed parameters {
       if (fullpsi) {
 	Psi_r[g] = Psi_r_mat[g];
       } else {
-        Psi_r_lower[g] = fill_matrix(2*Psi_r_free - 1, Psi_r_skeleton[g], w10skel, g_start10[g], f_start10[g]);
+        Psi_r_lower[g] = fill_matrix(Psi_r_free, Psi_r_skeleton[g], w10skel, g_start10[g], f_start10[g]);
         Psi_r[g] = Psi_r_lower[g] + transpose(Psi_r_lower[g]) - diag_matrix(rep_vector(1, m));
       }
       Psi[g] = quad_form_sym(Psi_r[g], Psi_sd[g]);
@@ -847,7 +848,7 @@ model { // N.B.: things declared in the model block do not get saved in the outp
   vector[len_free[9]] Psi_pri;
   
   /* log-likelihood */
-  if (use_cov) {
+  if (use_cov && !pri_only) {
     for (g in 1:Ng) {
       target += wishart_lpdf((N[g] - 1) * Sstar[g] | N[g] - 1, Sigma[g]);
       if (Nx[g] > 0) {
@@ -855,7 +856,7 @@ model { // N.B.: things declared in the model block do not get saved in the outp
 	target += -wishart_lpdf((N[g] - 1) * Sstar[g, xvars, xvars] | N[g] - 1, Sigma[g, xvars, xvars]);
       }
     }
-  } else if (has_data) {
+  } else if (has_data && !pri_only) {
     int obsidx[p + q];
     int xidx[p + q];
     int xdatidx[p + q];
@@ -921,13 +922,13 @@ model { // N.B.: things declared in the model block do not get saved in the outp
   target += gamma_lpdf(Theta_pri | theta_sd_shape, theta_sd_rate);
   target += gamma_lpdf(Psi_pri | psi_sd_shape, psi_sd_rate);
 
-  target += beta_lpdf(Theta_r_free | theta_r_alpha, theta_r_beta);
+  target += beta_lpdf(.5 * (1 + Theta_r_free) | theta_r_alpha, theta_r_beta) + log(.5) * len_free[7]; // the latter term is the jacobian moving from (-1,1) to (0,1), because beta_lpdf is defined on (0,1)
   if (fullpsi) {
     for (g in 1:Ng) {
       target += lkj_corr_lpdf(Psi_r_mat[g] | psi_r_alpha[1]);
     }
   } else if (len_free[10] > 0) {
-    target += beta_lpdf(Psi_r_free | psi_r_alpha, psi_r_beta);
+    target += beta_lpdf(.5 * (1 + Psi_r_free) | psi_r_alpha, psi_r_beta) + log(.5) * len_free[10];
   }
 }
 generated quantities { // these matrices are saved in the output but do not figure into the likelihood
@@ -975,7 +976,7 @@ generated quantities { // these matrices are saved in the output but do not figu
   ly_sign = sign_constrain_load(Lambda_y_free, len_free[1], lam_y_sign);
   bet_sign = sign_constrain_reg(B_free, len_free[4], b_sign, Lambda_y_free, Lambda_y_free);
   if (fullpsi == 0) {
-    P_r = sign_constrain_reg(2 * Psi_r_free - 1, len_free[10], psi_r_sign, Lambda_y_free, Lambda_y_free);
+    P_r = sign_constrain_reg(Psi_r_free, len_free[10], psi_r_sign, Lambda_y_free, Lambda_y_free);
   }
   
   for (g in 1:Ng) {

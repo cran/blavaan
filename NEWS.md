@@ -1,9 +1,18 @@
+# Version 0.4-8
+## New features
+* This is a maintenance release with bug fixes and some changes in compiler settings
+
+
 # Version 0.4-7
 ## New features
 * This is primarily an update to address a C++14 vs C++17 compilation issue identified by CRAN
 
 * But bugs from 0.4-6 have also been fixed
 
+## Bugs/glitches discovered after the release:
+* Sampling from the priors (prisamp = TRUE) fails for models with meanstructure = FALSE; the posterior is still estimated (reported by Armel Brizuela Rodríguez).
+
+* For target = "jags", models with a single-indicator latent variable, where the latent variable is regressed on other variables, return incorrect parameter estimates (reported by Brad Cosentino).
 
 
 # Version 0.4-6
