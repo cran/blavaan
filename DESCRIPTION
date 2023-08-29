@@ -1,6 +1,6 @@
 Package: blavaan
 Title: Bayesian Latent Variable Analysis
-Version: 0.4-8
+Version: 0.5-1
 Authors@R: c(person(given = "Edgar", family = "Merkle",
                     role = c("aut", "cre"),
                     email = "merklee@missouri.edu",
@@ -35,7 +35,7 @@ Description: Fit a variety of Bayesian latent variable models, including confirm
 License: GPL (>= 3)
 ByteCompile: true
 Depends: R(>= 3.5.0), methods, Rcpp(>= 0.12.15)
-Imports: stats, utils, graphics, lavaan(>= 0.6-14), coda, mnormt,
+Imports: stats, utils, graphics, lavaan(>= 0.6-16), coda, mnormt,
         nonnest2(>= 0.5-5), loo(>= 2.0), rstan(>= 2.21.2),
         rstantools(>= 1.5.0), RcppParallel (>= 5.0.1), bayesplot,
         Matrix, future.apply, tmvnsim
@@ -48,7 +48,7 @@ SystemRequirements: GNU make
 NeedsCompilation: yes
 Additional_repositories: https://mc-stan.org/r-packages/
 Config/Needs/website: brms
-Packaged: 2023-06-09 14:10:28 UTC; merkle
+Packaged: 2023-08-29 14:09:00 UTC; merkle
 Author: Edgar Merkle [aut, cre] (<https://orcid.org/0000-0001-7158-0653>),
   Yves Rosseel [aut],
   Ben Goodrich [aut],
@@ -63,4 +63,4 @@ Author: Edgar Merkle [aut, cre] (<https://orcid.org/0000-0001-7158-0653>),
   Matthew Emery [ctb] (loo moment_match)
 Maintainer: Edgar Merkle <merklee@missouri.edu>
 Repository: CRAN
-Date/Publication: 2023-06-12 13:30:02 UTC
+Date/Publication: 2023-08-29 18:30:02 UTC

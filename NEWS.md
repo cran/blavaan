@@ -1,6 +1,16 @@
+# Version 0.5-1
+## New features
+* Two-level models are now supported (for complete, continuous data) via the cluster argument.
+
+
 # Version 0.4-8
 ## New features
 * This is a maintenance release with bug fixes and some changes in compiler settings
+
+## Bugs/glitches discovered after the release:
+* For certain models with residual correlations and/or correlated factors, the initial values under target='stan' lead to non-positive definite matrices (reported by Yuanyuan Hu).
+
+* For models where a latent variable is regressed on an observed variable (lv ~ ov), the latent variable samples do not account for the mean of the observed variable (they are centered around 0 and off by a constant).
 
 
 # Version 0.4-7
