@@ -207,7 +207,7 @@ function(object, header       = TRUE,
             PE$Post.Mode[peentry] <- object@external$mcmcout$summaries[newpt$jagpnum[pte2],'Mode']
             if(all(is.na(PE$Post.Mode))) warning("blavaan WARNING: Posterior modes require installation of the modeest package.", call. = FALSE)
           } else {
-            warning("blavaan WARNING: Posterior modes not available for target='stan'.", call. = FALSE)
+            PE$Post.Mode[peentry] <- blavInspect(object, "postmode")
           }
         }
         if(bf){
@@ -265,7 +265,7 @@ plot.blavaan <- function(x, pars=NULL, plot.type="trace", showplot=TRUE, ...){
     }
 
     if(x@Options$target != "stan"){
-        samps <- as.array(blavInspect(x, 'mcmc'), drop = FALSE)
+        samps <- as.array(blavInspect(x, 'mcmc', add.labels = FALSE), drop = FALSE)
         parnames <- x@ParTable$pxnames[match(pars, x@ParTable$free)]
         samps <- samps[, match(parnames, colnames(samps)), , drop = FALSE]
         ## samps dims must be "iteration, chain, parameter"
@@ -280,7 +280,7 @@ plot.blavaan <- function(x, pars=NULL, plot.type="trace", showplot=TRUE, ...){
     } else {
         dimnames(samps)[[3]] <- with(x@ParTable, paste0(lhs,op,rhs,".g",group)[match(pars, free)])
     }
-        
+
     plfun <- get(paste0("mcmc_", plot.type), asNamespace("bayesplot"))
 
     pl <- do.call(plfun, c(list(x = samps), list(...)))

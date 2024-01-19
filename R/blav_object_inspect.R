@@ -89,15 +89,19 @@ blavInspect <- function(blavobject, what, ...) {
             pt$free[pt$op == ":="] <- max(pt$free, na.rm = TRUE) + 1:sum(pt$op == ":=")
             labs <- lav_partable_labels(pt, type = "free")
             draws <- make_mcmc(blavobject@external$mcmcout)
-            draws <- lapply(draws, function(x) mcmc(x[,idx]))
+            draws <- lapply(draws, function(x) mcmc(x[, idx, drop = FALSE]))
             draws <- mcmc.list(draws)
+            if(add.labels) {
+                for (i in 1:length(draws)) {
+                    colnames(draws[[i]]) <- labs
+                }
+            }
             if(what == "hpd"){
                 pct <- .95
                 if("level" %in% dotNames) pct <- dotdotdot$level
                 if("prob" %in% dotNames) pct <- dotdotdot$prob
                 draws <- mcmc(do.call("rbind", draws))
                 draws <- HPDinterval(draws, pct)
-                if(add.labels) rownames(draws) <- labs
             }
             draws
         } else if(what == "mcobj"){
@@ -232,7 +236,8 @@ blavInspect <- function(blavobject, what, ...) {
                 if(jagtarget){
                     OUT <- mcmcsumm[idx,'Mode']
                 } else {
-                    stop("blavaan ERROR: Modes unavailable for Stan.")
+                    draws <- do.call("rbind", blavInspect(blavobject, "mcmc"))
+                    OUT <- modeapprox(draws)
                 }
             }
             if(add.labels) names(OUT) <- labs

@@ -181,7 +181,7 @@ blavaan <- function(...,  # default lavaan arguments
     }
   
     # which arguments do we override?
-    lavArgsOverride <- c("missing", "estimator", "conditional.x")
+    lavArgsOverride <- c("missing", "estimator", "conditional.x", "parser")
     if(target != "stan") lavArgsOverride <- c(lavArgsOverride, "meanstructure")
     # always warn?
     warn.idx <- which(lavArgsOverride %in% dotNames)
@@ -215,6 +215,7 @@ blavaan <- function(...,  # default lavaan arguments
     # run for 1 iteration to obtain info about equality constraints, for npar
     dotdotdot$control <- list(iter.max = 1, eval.max = 1); dotdotdot$warn <- TRUE
     dotdotdot$optim.force.converged <- TRUE
+    if(packageDescription("lavaan")$Version > "0.6-16") dotdotdot$parser <- "old"
     if(target != "stan") dotdotdot$meanstructure <- TRUE
     dotdotdot$missing <- "direct"   # direct/ml creates error? (bug in lavaan?)
     ordmod <- FALSE
@@ -324,6 +325,14 @@ blavaan <- function(...,  # default lavaan arguments
     }
 
     # for initial values/some parameter setup:
+    if(lavInspect(LAV, 'nlevels') > 1){
+        # ppp for within-only ovs turned off because saturated lik doesn't work
+        if(length(LAV@Data@Lp[[1]]$within.idx[[1]]) > 0){
+            if(!("test" %in% dotNames)) origtest <- "none"
+            cat('blavaan NOTE: test="none" by default for models with within-only ovs, because the metrics appear to be unstable')
+        }
+    }
+
     if(jag.do.fit){
         LAV2 <- try(do.call("lavaan", dotdotdot), silent = TRUE)
         if(!inherits(LAV2, 'try-error')) LAV <- LAV2
@@ -475,7 +484,7 @@ blavaan <- function(...,  # default lavaan arguments
     lavoptions$estimator <- "Bayes"
     lavoptions$se        <- "standard"
     lavoptions$test <- "standard"
-    if("test" %in% dotNames) {
+    if("test" %in% names(dotdotdot)) {
         if(dotdotdot$test == "none") lavoptions$test <- "none"
     } else {
         # if missing data, posterior predictives are way slow
@@ -548,7 +557,7 @@ blavaan <- function(...,  # default lavaan arguments
                                                 inits = initsin, wiggle = wiggle,
                                                 wiggle.sd = wiggle.sd, prisamp = prisamp,
                                                 level = 2L, indat = l2s$dat))
-                
+
                     if(!inherits(l2slev2, "try-error")){
                         l2s$dat <- c(l2s$dat, l2slev2$dat)
                         l2s$dat <- l2s$dat[!duplicated(names(l2s$dat))]
@@ -572,12 +581,6 @@ blavaan <- function(...,  # default lavaan arguments
 
                         jagtrans <- try(do.call("stanmarg_data", ldargs), silent = TRUE)
                         if(inherits(jagtrans, "try-error")) stop(jagtrans)
-                        
-                        ## add lkj for unrestricted psi
-                        if(jagtrans$fullpsi == 1L){
-                            psirows <- which(l2s$lavpartable$mat == "lvrho")
-                            lavpartable$prior[as.numeric(rownames(l2s$lavpartable))[psirows]] <- paste0("lkj_corr(", jagtrans$psi_r_alpha[1], ")")
-                        }
 
                         stanmon <- c("ly_sign", "bet_sign", "Theta_cov", "Theta_var",
                                      "Psi_cov", "Psi_var", "Nu_free", "Alpha_free", "Tau_free")
@@ -619,7 +622,7 @@ blavaan <- function(...,  # default lavaan arguments
                     ## FIXME these do not cover level 2 parameters
                     moment_match_monitors <- c("Lambda_y_free", "B_free", 
                         "Theta_sd_free", "Theta_r_free", "Psi_sd_free", 
-                        "Psi_r_mat", "Psi_r_free", "Nu_free", "Alpha_free")
+                        paste0("Psi_r_mat_", 1:5), "Psi_r_free", "Nu_free", "Alpha_free")
                     moment_match_monitors <- c(moment_match_monitors,
                                                paste0(moment_match_monitors, "_c"))
                     moment_match_monitors <- c(moment_match_monitors, "Tau_ufree", 
@@ -700,8 +703,7 @@ blavaan <- function(...,  # default lavaan arguments
 
             if(target == "jags"){
                 ## obtain posterior modes
-                ## turned off because runjags needs updated
-                if(suppressMessages(requireNamespace("modeest", quietly = TRUE))) runjags::runjags.options(mode.continuous = FALSE)
+                if(suppressMessages(requireNamespace("modeest", quietly = TRUE))) runjags::runjags.options(mode.continuous = TRUE)
                 runjags::runjags.options(force.summary = TRUE)
             }
 
@@ -990,8 +992,11 @@ blavaan <- function(...,  # default lavaan arguments
     TEST <- list()
     domll <- TRUE
     covres <- checkcovs(LAV)
-    ## in these cases, we cannot realibly evaluate the priors
-    if(ordmod | !(covres$diagpsi | covres$fullpsi) | !(covres$diagthet | covres$fullthet)) domll <- FALSE
+    ## in these cases, we cannot reliably evaluate the priors
+    if(ordmod | !(covres$diagthet | covres$fullthet)) domll <- FALSE
+    if(target == "stan" && !l2s$blkpsi) domll <- FALSE
+    if(target != "stan" && !(covres$diagpsi | covres$fullpsi)) domll <- FALSE
+
     if(lavoptions$test != "none") { # && attr(x, "converged")) {
         TEST <- blav_model_test(lavmodel            = lavmodel,
                                 lavpartable         = lavpartable,
@@ -1099,12 +1104,15 @@ blavaan <- function(...,  # default lavaan arguments
         lavInspect(blavaan, "post.check")
     }
 
-    if(with(covres, !(diagpsi | fullpsi) | !(diagthet | fullthet))){
-        badmat <- "psi"
-        if(with(covres, !(diagthet | fullthet))) badmat <- "theta"
-        warning("blavaan WARNING: As specified, the ", badmat, " covariance matrix is neither diagonal nor unrestricted, so the actual prior might differ from the stated prior. See\n https://arxiv.org/abs/2301.08667", call. = FALSE)
+    if( "psi" %in% lavpartable$mat &&
+        ( (target == "stan" && !l2s$blkpsi) ||
+          (target != "stan" && with(covres, !(diagpsi | fullpsi))) ) ) {
+      warning("blavaan WARNING: As specified, the psi covariance matrix is neither diagonal nor unrestricted, so the actual prior might differ from the stated prior. See\n https://arxiv.org/abs/2301.08667", call. = FALSE)
     }
-      
+    if( "theta" %in% lavpartable$mat && with(covres, !(diagthet | fullthet)) ) {
+      warning("blavaan WARNING: As specified, the theta covariance matrix is neither diagonal nor unrestricted, so the actual prior might differ from the stated prior. See\n https://arxiv.org/abs/2301.08667", call. = FALSE)
+    }
+    
     if(jag.do.fit & lavoptions$warn & !prisamp & !usevb & !grepl("stan", target)){
         if(any(blavInspect(blavaan, 'neff') < 100)){
             warning("blavaan WARNING: Small effective sample sizes (< 100) for some parameters.", call. = FALSE)
