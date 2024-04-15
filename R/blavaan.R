@@ -321,7 +321,15 @@ blavaan <- function(...,  # default lavaan arguments
     dotdotdot$do.fit <- TRUE; dotdotdot$warn <- FALSE
     if(LAV@Data@data.type != "moment" && target == "stan"){
         ## if no missing, set missing = "listwise" to avoid meanstructure if possible
-        if(!any(is.na(unlist(lavInspect(LAV, 'data'))))) dotdotdot$missing <- "listwise"
+        if(!any(is.na(unlist(lavInspect(LAV, 'data'))))){
+            dotdotdot$missing <- "listwise"
+        } else {
+            if("cluster" %in% dotNames) {
+                ## set missing = "listwise" for two-level models
+                dotdotdot$missing <- "listwise"
+                cat("blavaan NOTE: listwise deletion is in use! (currently the only missingness option for two-level models)\n\n")
+            }
+        }
     }
 
     # for initial values/some parameter setup:
@@ -345,8 +353,8 @@ blavaan <- function(...,  # default lavaan arguments
     # save.lvs in a model with no lvs
     if(save.lvs){
         clv <- lavInspect(LAV, 'cov.lv')
-        if(is.list(clv)) clv <- clv[[1]]
-        if(nrow(clv) == 0) warning("blavaan WARNING: save.lvs=TRUE, but there are no lvs in the model.", call. = FALSE)
+        if(!is.list(clv)) clv <- list(clv)
+        if(all(sapply(clv, nrow) == 0)) warning("blavaan WARNING: save.lvs=TRUE, but there are no lvs in the model.", call. = FALSE)
     }
         
     # turn warnings back on by default
@@ -402,7 +410,10 @@ blavaan <- function(...,  # default lavaan arguments
                      LAV@ParTable$rhs %in% LAV@ParTable$plabel[cov.pars]) &
                      LAV@ParTable$op == "=="))
     if(con.cov) LAV@Options$auto.cov.lv.x <- FALSE
-    
+
+    # ensure group is in the parTable
+    if(!("group" %in% names(LAV@ParTable))) LAV@ParTable$group <- rep(1L, length(LAV@ParTable$lhs))
+  
     # if std.lv, truncate the prior of each lv's first loading
     loadpt <- LAV@ParTable$op == "=~"
     lvs <- unique(LAV@ParTable$lhs[loadpt])
@@ -502,6 +513,9 @@ blavaan <- function(...,  # default lavaan arguments
     lavoptions$prisamp   <- prisamp
     lavoptions$target    <- target
     lavoptions$optim.method <- "mcmc"
+    lavoptions$burnin <- burnin
+    lavoptions$sample <- sample
+    lavoptions$n.chains <- n.chains
     if("llnsamp" %in% names(mcmcextra$data)){
         if(length(mcmcextra$data$llnsamp) > 1 ||
            (!inherits(mcmcextra$data$llnsamp, "numeric") &&
@@ -1104,13 +1118,15 @@ blavaan <- function(...,  # default lavaan arguments
         lavInspect(blavaan, "post.check")
     }
 
-    if( "psi" %in% lavpartable$mat &&
-        ( (target == "stan" && !l2s$blkpsi) ||
-          (target != "stan" && with(covres, !(diagpsi | fullpsi))) ) ) {
-      warning("blavaan WARNING: As specified, the psi covariance matrix is neither diagonal nor unrestricted, so the actual prior might differ from the stated prior. See\n https://arxiv.org/abs/2301.08667", call. = FALSE)
-    }
-    if( "theta" %in% lavpartable$mat && with(covres, !(diagthet | fullthet)) ) {
-      warning("blavaan WARNING: As specified, the theta covariance matrix is neither diagonal nor unrestricted, so the actual prior might differ from the stated prior. See\n https://arxiv.org/abs/2301.08667", call. = FALSE)
+    if(!lavoptions$.multilevel) { # because checkcovs() has not been adapted to it
+      if( "psi" %in% lavpartable$mat &&
+          ( (target == "stan" && !l2s$blkpsi) ||
+            (target != "stan" && with(covres, !(diagpsi | fullpsi))) ) ) {
+        warning("blavaan WARNING: As specified, the psi covariance matrix is neither diagonal nor unrestricted, so the actual prior might differ from the stated prior. See\n https://arxiv.org/abs/2301.08667", call. = FALSE)
+      }
+      if( "theta" %in% lavpartable$mat && with(covres, !(diagthet | fullthet)) ) {
+        warning("blavaan WARNING: As specified, the theta covariance matrix is neither diagonal nor unrestricted, so the actual prior might differ from the stated prior. See\n https://arxiv.org/abs/2301.08667", call. = FALSE)
+      }
     }
     
     if(jag.do.fit & lavoptions$warn & !prisamp & !usevb & !grepl("stan", target)){

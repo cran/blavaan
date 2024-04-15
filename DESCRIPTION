@@ -1,6 +1,6 @@
 Package: blavaan
 Title: Bayesian Latent Variable Analysis
-Version: 0.5-3
+Version: 0.5-4
 Authors@R: c(person(given = "Edgar", family = "Merkle",
                     role = c("aut", "cre"),
                     email = "merklee@missouri.edu",
@@ -51,7 +51,7 @@ URL: https://ecmerkle.github.io/blavaan/,
 BugReports: https://github.com/ecmerkle/blavaan/issues
 Additional_repositories: https://mc-stan.org/r-packages/
 Config/Needs/website: brms
-Packaged: 2024-01-19 18:35:45 UTC; merkle
+Packaged: 2024-04-15 02:32:25 UTC; merkle
 Author: Edgar Merkle [aut, cre] (<https://orcid.org/0000-0001-7158-0653>),
   Yves Rosseel [aut],
   Ben Goodrich [aut],
@@ -66,4 +66,4 @@ Author: Edgar Merkle [aut, cre] (<https://orcid.org/0000-0001-7158-0653>),
   Matthew Emery [ctb] (loo moment_match)
 Maintainer: Edgar Merkle <merklee@missouri.edu>
 Repository: CRAN
-Date/Publication: 2024-01-19 22:50:02 UTC
+Date/Publication: 2024-04-15 07:00:02 UTC
