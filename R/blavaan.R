@@ -7,8 +7,8 @@ blavaan <- function(...,  # default lavaan arguments
                     burnin             ,
                     sample             ,
                     adapt              ,
-                    mcmcfile            = FALSE,
-                    mcmcextra           = list(),
+                    mcmcfile           = FALSE,
+                    mcmcextra          = list(),
                     inits              = "simple",
                     convergence        = "manual",
                     target             = "stan",
@@ -86,10 +86,14 @@ blavaan <- function(...,  # default lavaan arguments
 
     # mcmcextra args
     if(length(mcmcextra) > 0){
-      goodnm <- names(mcmcextra) %in% c('data', 'monitor', 'syntax', 'llnsamp', 'moment_match_k_threshold')
+      goodnm <- names(mcmcextra) %in% c('data', 'monitor', 'syntax', 'llnsamp', 'moment_match_k_threshold', 'dosam')
       if(!all(goodnm)){
         stop(paste0("blavaan ERROR: invalid list names in mcmcextra:\n  ", paste(names(mcmcextra)[!goodnm], collapse=" ")))
       }
+
+      if(!("dosam" %in% names(mcmcextra))) mcmcextra$dosam <- FALSE
+    } else {
+      mcmcextra$dosam <- FALSE
     }
   
     # ensure rstan/runjags are here. if target is not installed but
@@ -101,6 +105,7 @@ blavaan <- function(...,  # default lavaan arguments
         if("syntax" %in% names(mcmcextra)) stop(paste0("blavaan ERROR: mcmcextra$syntax is not available for target='", target, "'."))
       }
     } else if(target == "jags"){
+      if(mcmcextra$dosam) stop("blavaan ERROR: SAM requires target = 'stan'")
       if(!pkgcheck("runjags")){
         ## go to rstan if they have it
         if(pkgcheck("rstan")){
@@ -233,6 +238,7 @@ blavaan <- function(...,  # default lavaan arguments
     }
     dotdotdot$parameterization <- "theta"
     dotdotdot$estimator <- "default"
+    if(ordmod) dotdotdot$estimator <- "DWLS" ## to avoid errors setting up weight matrix
     dotdotdot$conditional.x <- FALSE
   
     # jags args
@@ -346,6 +352,15 @@ blavaan <- function(...,  # default lavaan arguments
         if(!inherits(LAV2, 'try-error')) LAV <- LAV2
     }
 
+    ## ensure verbose appears in lavoptions, for 0.6-18 (FIXME also warn/debug?)
+    if(!("verbose" %in% names(LAV@Options))) {
+      if(!("verbose" %in% names(dotdotdot))) {
+        LAV@Options$verbose <- FALSE
+      } else {
+        LAV@Options$verbose <- dotdotdot$verbose
+      }
+    }
+  
     if(LAV@Data@data.type == "moment") {
         if(target != "stan") stop('blavaan ERROR: full data are required for ', target, ' target.\n  Try target="stan", or consider using kd() from package semTools.')
     }
@@ -370,7 +385,7 @@ blavaan <- function(...,  # default lavaan arguments
     # ordinal only for stan
     ordmod <- lavInspect(LAV, 'categorical')
     if(ordmod) {
-        if(!(target %in% c("stan", "cmdstan"))) stop("blavaan ERROR: ordinal variables only work for target='stan' or 'cmdstan'.")
+        if(!(target %in% c("stan", "cmdstan", "vb"))) stop("blavaan ERROR: ordinal variables only work for target='stan' or 'cmdstan' or 'vb'.")
     }
         
     ineq <- which(LAV@ParTable$op %in% c("<",">"))
@@ -680,7 +695,11 @@ blavaan <- function(...,  # default lavaan arguments
                 fext <- ifelse(target=="jags", "jag", "stan")
                 fnm <- paste0(jagdir, "/sem.", fext)
                 if(target %in% c("stan", "cmdstan")){
-                    cat(stanmodels$stanmarg@model_code, file = fnm)
+                    if(FALSE){#mcmcextra$dosam){
+                        #cat(bsam::stanmodels$stanmarg_bsam@model_code, file = fnm)
+                    } else {
+                        cat(stanmodels$stanmarg@model_code, file = fnm)
+                    }
                 } else {
                     cat(jagtrans$model, file = fnm)
                 }
@@ -705,6 +724,11 @@ blavaan <- function(...,  # default lavaan arguments
                                            init = inits))
             } else if(target == "cmdstan"){
               rjarg <- with(jagtrans, list(data = data, init = inits))
+            } else if(FALSE){#mcmcextra$dosam){
+              #rjarg <- with(jagtrans, list(object = bsam::stanmodels$stanmarg_bsam,
+              #                             data = data,
+              #                             pars = sampparms,
+              #                             init = inits))
             } else {
               rjarg <- with(jagtrans, list(object = stanmodels$stanmarg,
                                            data = data,
@@ -896,6 +920,12 @@ blavaan <- function(...,  # default lavaan arguments
         }
         attr(x, "control") <- bcontrol
 
+        ## for sam, replace fixed psi entries with sampled means
+        if (mcmcextra$dosam & LAV@Options$std.lv) {
+          LAV@Model@GLIST$psi <- matrix(stansumm[grep("^PS\\[", rownames(stansumm)), 'mean'],
+                                        jagtrans$data$m, jagtrans$data$m, byrow = TRUE)
+        }
+        
         ## log-likelihoods
         LAV@Options$target <- "jags" ## to ensure computation in R, vs extraction of the
                                      ## log-likehoods from Stan
@@ -1149,9 +1179,10 @@ bcfa <- bsem <- function(..., cp = "srs", dp = NULL,
     dotdotdot <- list(...)
     std.lv <- ifelse(any(names(dotdotdot) == "std.lv"), dotdotdot$std.lv, FALSE)
 
-    mc <- match.call()  
+    mc <- match.call()
     mc$model.type      = as.character( mc[[1L]] )
     if(length(mc$model.type) == 3L) mc$model.type <- mc$model.type[3L]
+    mc$model.type <- gsub("^b", "", mc$model.type)
     mc$n.chains        = n.chains
     mc$int.ov.free     = TRUE
     mc$int.lv.free     = FALSE

@@ -240,6 +240,8 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
                           lam_y_sign_c = NULL, b_sign_c = NULL, psi_r_sign_c = NULL,
                           psi_r_sign_f_c, nblk_c, psidims_c, blkse_c,                          
                           phi_r_sign_c = NULL, dumlv_c = NULL, wigind_c = NULL,
+                          Ndum = NULL, dum_ov_idx = NULL, dum_lv_idx = NULL, # for bsam
+                          Ndum_x = NULL, dum_ov_x_idx = NULL, dum_lv_x_idx = NULL,
                           ...) {
   
   dat <- list()
@@ -274,6 +276,13 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   
   dat$YX <- YX
   dat$YXo <- YXo
+
+  dat$Ndum <- Ndum
+  dat$dum_ov_idx <- dum_ov_idx
+  dat$dum_lv_idx <- dum_lv_idx
+  dat$Ndum_x <- Ndum_x
+  dat$dum_ov_x_idx <- dum_ov_x_idx
+  dat$dum_lv_x_idx <- dum_lv_x_idx
 
   dat$use_suff <- 1L
   if (ord | multilev) dat$use_suff <- 0L
@@ -353,7 +362,8 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$between_idx <- between_idx; dat$N_between <- N_between
   dat$within_idx <- within_idx; dat$N_within <- N_within
   dat$both_idx <- both_idx; dat$N_both <- N_both
-  dat$ov_idx1 <- ov_idx1; dat$ov_idx2 <- ov_idx2
+  dat$ov_idx1 <- array(ov_idx1, dim = length(ov_idx1))
+  dat$ov_idx2 <- array(ov_idx2, dim = length(ov_idx2))
   dat$p_tilde <- p_tilde
   dat$N_lev <- N_lev
 
