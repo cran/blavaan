@@ -186,7 +186,7 @@ blavaan <- function(...,  # default lavaan arguments
     }
   
     # which arguments do we override?
-    lavArgsOverride <- c("missing", "estimator", "conditional.x", "parser")
+    lavArgsOverride <- c("missing", "estimator", "conditional.x", "parser", "cat.wls.w")
     if(target != "stan") lavArgsOverride <- c(lavArgsOverride, "meanstructure")
     # always warn?
     warn.idx <- which(lavArgsOverride %in% dotNames)
@@ -217,6 +217,7 @@ blavaan <- function(...,  # default lavaan arguments
     }
     dotdotdot$do.fit <- FALSE
     dotdotdot$se <- "none"; dotdotdot$test <- "none"
+    dotdotdot$cat.wls.w <- FALSE
     # run for 1 iteration to obtain info about equality constraints, for npar
     dotdotdot$control <- list(iter.max = 1, eval.max = 1); dotdotdot$warn <- TRUE
     dotdotdot$optim.force.converged <- TRUE
@@ -1037,9 +1038,24 @@ blavaan <- function(...,  # default lavaan arguments
     domll <- TRUE
     covres <- checkcovs(LAV)
     ## in these cases, we cannot reliably evaluate the priors
-    if(ordmod | !(covres$diagthet | covres$fullthet)) domll <- FALSE
-    if(target == "stan" && !l2s$blkpsi) domll <- FALSE
-    if(target != "stan" && !(covres$diagpsi | covres$fullpsi)) domll <- FALSE
+    if(ordmod) domll <- FALSE
+    if(target == "stan") {
+      if(covres$dobf) {
+        domll <- TRUE
+      } else if((covres$diagthet | covres$fullthet) & l2s$blkpsi) {
+        domll <- TRUE
+      } else {
+        domll <- FALSE
+      }
+    } else {
+      if(covres$dobf) {
+        domll <- TRUE
+      } else if((covres$diagpsi | covres$fullpsi) & covres$diagthet) {
+        domll <- TRUE
+      } else {
+        domll <- FALSE
+      }
+    }
 
     if(lavoptions$test != "none") { # && attr(x, "converged")) {
         TEST <- blav_model_test(lavmodel            = lavmodel,
