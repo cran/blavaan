@@ -187,7 +187,7 @@ blavaan <- function(...,  # default lavaan arguments
   
     # which arguments do we override?
     lavArgsOverride <- c("missing", "estimator", "conditional.x", "parser", "cat.wls.w")
-    if(target != "stan") lavArgsOverride <- c(lavArgsOverride, "meanstructure")
+    if(!(target %in% c("stan", "cmdstan"))) lavArgsOverride <- c(lavArgsOverride, "meanstructure")
     # always warn?
     warn.idx <- which(lavArgsOverride %in% dotNames)
     if(length(warn.idx) > 0L) {
@@ -613,7 +613,7 @@ blavaan <- function(...,  # default lavaan arguments
                         if(inherits(jagtrans, "try-error")) stop(jagtrans)
 
                         stanmon <- c("ly_sign", "bet_sign", "Theta_cov", "Theta_var",
-                                     "Psi_cov", "Psi_var", "Nu_free", "Alpha_free", "Tau_free")
+                                     "Psi_cov", "Psi_var", "Nu_free", "al_sign", "Tau_free")
                         if(lavoptions$.multilevel){
                           stanmon <- c(stanmon, paste0(stanmon, "_c"))
                           stanmon <- stanmon[-which(stanmon == "Tau_free_c")]
@@ -656,7 +656,7 @@ blavaan <- function(...,  # default lavaan arguments
                     moment_match_monitors <- c(moment_match_monitors,
                                                paste0(moment_match_monitors, "_c"))
                     moment_match_monitors <- c(moment_match_monitors, "Tau_ufree", 
-                                               "z_aug", "ly_sign", "bet_sign", "Theta_cov",
+                                               "z_aug", "ly_sign", "bet_sign", "al_sign", "Theta_cov",
                                                "Theta_var", "Psi_cov", "Psi_var", "Tau_free",
                                                "log_lik", "log_lik_sat", "ppp")
                     jagtrans$monitors <- c(jagtrans$monitors, moment_match_monitors[!(moment_match_monitors %in% jagtrans$monitors)])
@@ -696,8 +696,8 @@ blavaan <- function(...,  # default lavaan arguments
                 fext <- ifelse(target=="jags", "jag", "stan")
                 fnm <- paste0(jagdir, "/sem.", fext)
                 if(target %in% c("stan", "cmdstan")){
-                    if(FALSE){#mcmcextra$dosam){
-                        #cat(bsam::stanmodels$stanmarg_bsam@model_code, file = fnm)
+                    if(mcmcextra$dosam){
+                        cat(getFromNamespace("stanmodels", "blavsam")$stanmarg_bsam@model_code, file = fnm)
                     } else {
                         cat(stanmodels$stanmarg@model_code, file = fnm)
                     }
@@ -725,11 +725,11 @@ blavaan <- function(...,  # default lavaan arguments
                                            init = inits))
             } else if(target == "cmdstan"){
               rjarg <- with(jagtrans, list(data = data, init = inits))
-            } else if(FALSE){#mcmcextra$dosam){
-              #rjarg <- with(jagtrans, list(object = bsam::stanmodels$stanmarg_bsam,
-              #                             data = data,
-              #                             pars = sampparms,
-              #                             init = inits))
+            } else if(mcmcextra$dosam){
+              rjarg <- with(jagtrans, list(object = getFromNamespace("stanmodels", "blavsam")$stanmarg_bsam,
+                                           data = data,
+                                           pars = sampparms,
+                                           init = inits))
             } else {
               rjarg <- with(jagtrans, list(object = stanmodels$stanmarg,
                                            data = data,
@@ -758,7 +758,12 @@ blavaan <- function(...,  # default lavaan arguments
                 } else if(target == "cmdstan"){
                     fname <- paste0("stanmarg_", packageDescription("blavaan")["Version"])
                     fdir <- paste0(cmdstanr::cmdstan_path(), "/")
-                    blavmod <- cmdstanr::cmdstan_model(cmdstanr::write_stan_file(stanmodels$stanmarg@model_code,
+                    if(mcmcextra$dosam) {
+                      obj <- getFromNamespace("stanmodels", "blavsam")$stanmarg_bsam
+                    } else {
+                      obj <- stanmodels$stanmarg
+                    }
+                    blavmod <- cmdstanr::cmdstan_model(cmdstanr::write_stan_file(obj@model_code,
                                                                                  dir = fdir,
                                                                                  basename = fname) )
                     rjcall <- blavmod$sample

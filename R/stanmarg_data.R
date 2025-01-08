@@ -218,7 +218,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
                           w4skel, w5skel, w6skel, w7skel, w8skel,
                           w9skel, w10skel, w11skel, w12skel, w13skel,
                           w14skel, w15skel, emiter,
-                          lam_y_sign, lam_x_sign, # sign constraint matrices
+                          lam_y_sign, lam_x_sign, alph_sign, # sign constraint matrices
                           gam_sign, b_sign, psi_r_sign, psi_r_sign_f,
                           nblk, psidims, blkse, phi_r_sign,
                           lavpartable = NULL, # for priors
@@ -237,11 +237,12 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
                           w1skel_c = NULL, w4skel_c = NULL, w5skel_c = NULL, w7skel_c = NULL,
                           w9skel_c = NULL, w10skel_c = NULL, w11skel_c = NULL, w13skel_c = NULL,
                           w14skel_c = NULL,
-                          lam_y_sign_c = NULL, b_sign_c = NULL, psi_r_sign_c = NULL,
+                          lam_y_sign_c = NULL, b_sign_c = NULL, alph_sign_c = NULL, psi_r_sign_c = NULL,
                           psi_r_sign_f_c, nblk_c, psidims_c, blkse_c,                          
                           phi_r_sign_c = NULL, dumlv_c = NULL, wigind_c = NULL,
                           Ndum = NULL, dum_ov_idx = NULL, dum_lv_idx = NULL, # for bsam
                           Ndum_x = NULL, dum_ov_x_idx = NULL, dum_lv_x_idx = NULL,
+                          ngh = NULL, ghnode = NULL, ghwt = NULL,
                           ...) {
   
   dat <- list()
@@ -283,7 +284,10 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$Ndum_x <- Ndum_x
   dat$dum_ov_x_idx <- dum_ov_x_idx
   dat$dum_lv_x_idx <- dum_lv_x_idx
-
+  dat$ngh <- ngh
+  dat$ghnode <- ghnode
+  dat$ghwt <- ghwt
+  
   dat$use_suff <- 1L
   if (ord | multilev) dat$use_suff <- 0L
 
@@ -395,6 +399,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
 
   dat$w13skel <- w13skel
   dat$w14skel <- w14skel
+  dat$alph_sign <- alph_sign
   dat$w15skel <- w15skel
 
   ## level 2 matrices
@@ -419,6 +424,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$psidims_c <- psidims_c
   dat$blkse_c <- blkse_c
   dat$w13skel_c <- w13skel_c
+  dat$alph_sign_c <- alph_sign_c
   dat$w14skel_c <- w14skel_c
   
 

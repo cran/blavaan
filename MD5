@@ -1,6 +1,6 @@
-0201d4c0225e1c69aeb02c417f9c426a *DESCRIPTION
+ed24467506c83d241da3bd30631929b0 *DESCRIPTION
 552d10d059a11a1db946204834266c5f *NAMESPACE
-d52d7fc74622dc72ea8f70fc5f280386 *NEWS.md
+94474ed2168923740ee93b978af5888d *NEWS.md
 be8bb39b5618c2843ad576dd22765133 *R/00class.R
 00f32ef632f71eb006f1f4737b396334 *R/blav_adapt_quad.R
 58d31abedadd6c0ff3c7ce03c6c2add4 *R/blav_compare.R
@@ -12,8 +12,8 @@ d509e00f26effa24a635e682e31a3708 *R/blav_fit.R
 96f2ea0907b2d821f0b97ee198b06283 *R/blav_object_methods.R
 285989b98c744be060214b19d4e238ae *R/blav_predict.R
 4bc1824825dce53725bc9cb00341b5bb *R/blav_test.R
-7ed9eb735a0cd637bb9dc4c00a2c1726 *R/blav_utils.R
-d9267d02bf9343ea170e47f2fa4bb003 *R/blavaan.R
+a7736f5aa60203a890f8d3b2054b7d09 *R/blav_utils.R
+f0b62b16bfec43c329e57fba11d844ac *R/blavaan.R
 ebf8dfa250f0e4a2a9b2cd913a4d5e89 *R/ctr_bayes_fit.R
 fc9637945b04915f3a97b005a0c34744 *R/ctr_ppmc.R
 e5d788f75302c12cb449c6aca64a5720 *R/dpriors.R
@@ -21,7 +21,7 @@ bb0152fa9316b1c59a4aed14d85782d8 *R/jags2r.R
 6929aff9aa783e5c6cad09fb5a6b6cc2 *R/lav_export_mcmc.R
 24ccfb7a3d8578e6233aafb5bb4b540d *R/lav_export_stanclassic.R
 660a0c5a7ad3357dfd4da654fc52e653 *R/lav_export_stancond.R
-679a22966c656a8ff2edbcd39c8188a4 *R/lav_export_stanmarg.R
+9ea4a361c3ef7094012e12edb5967d96 *R/lav_export_stanmarg.R
 a0b1ada069510ce6d3b9e7200f748cc2 *R/lvgqs.R
 da501d5f5f67c59db09635125137dc34 *R/margloglik.R
 42111ceff4859e2561a7b70910701ac0 *R/postpred.R
@@ -30,7 +30,7 @@ c90cf5bb58c1b5b50992aabde2deb6a1 *R/set_inits.R
 96c8a092fd316f412961dffc78111577 *R/set_priors.R
 605885d5dbffa30870c1bd58ac9b6990 *R/set_stancovs.R
 ee4e848a496cca28960d36aedcf3f9e6 *R/set_stanpars.R
-4925a67f75e18106469428e41120fffc *R/stanmarg_data.R
+436a7b371d785b3a4abadd34b2fad7b7 *R/stanmarg_data.R
 4e143ae1c959b2fa684926623565212f *R/stanmodels.R
 b13e5cca00122f286a8bad36b892c856 *R/zzz.R
 9d451c9cd7f0ca8723b97a0f264a1876 *README.md
@@ -39,13 +39,13 @@ b13e5cca00122f286a8bad36b892c856 *R/zzz.R
 cbe0b566d817384e99d661ab83ea342c *inst/CITATION
 855c064dbf8deaff96c8dc8a87169109 *inst/include/stan_meta_header.hpp
 0ae76234cc0bacf4d108bff24e7d43a6 *inst/stan/include/license.stan
-f48aa2c681899bc99c736a4ab903bfb3 *inst/stan/stanmarg.stan
+a76b22d4b914bf5f2db0825012494cc0 *inst/stan/stanmarg.stan
 1ae599465625c7c515da1e8ec5c3d7dd *inst/stanfuns/fill_lower.stan
 265b850f409b5196d59b3ef56e719db1 *inst/stanfuns/sem_lv.stan
 412c72bcc727c654bbf78a67bec0312b *inst/stanfuns/sem_lv_missing.stan
 126bc060cc1017c189560452d649fc52 *inst/stanfuns/sem_mean.stan
 b59addbe96ca232c7aa1e09c30c57db3 *inst/stanfuns/sem_mean_eta.stan
-a42cd5c74209c696c5fb1895f24dc6b9 *inst/testdata/sysdata.rda
+c68dc0c721e21a288fcfe816539d4a9f *inst/testdata/sysdata.rda
 28367418aa9e6dd6df963b288893af1c *inst/tinytest/tests.blavaan.R
 5c680bcac5c1d56f05fb7594816d93c9 *inst/tinytest/tests.blavaanobject-methods.R
 e8e1931174a13431358609f3c3bba697 *man/bcfa.Rd
