@@ -113,7 +113,7 @@ postpred <- function(samplls = NULL, lavobject = NULL, measure = "logl", thin = 
           fit@external$eta <- eta
           fit@external$implied <- implied
         }
-        
+
         ## Apply custom "discFUN" to observed data
         chisq.obs <- vector("list", length(discFUN))
         for (d in seq_along(discFUN)) {

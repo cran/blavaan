@@ -2,6 +2,12 @@
 adapted_ghq <- function(fit, ngq, samprow = NULL) {
   samps <- do.call("rbind", make_mcmc(fit@external$mcmcout, fit@external$stanlvs))
 
+  if (is.null(samprow)) {
+    ## compute ll at posterior mean
+    samps[1,] <- colMeans(samps)
+    samprow <- 1
+  }
+  
   lavmodel <- fill_params(samps[samprow, , drop = FALSE], fit@Model, fit@ParTable)
   GLIST <- lavmodel@GLIST
   if (any(GLIST$theta[lower.tri(GLIST$theta)] != 0L)) stop("blavaan ERROR: The quadrature method cannot be used with non-diagonal theta matrix.")
@@ -30,7 +36,11 @@ adapted_ghq <- function(fit, ngq, samprow = NULL) {
                       casewise = TRUE, conditional = TRUE)
   }
 
-  out <- exp(out) * do.call("rbind", w.star.list)
+  if (nrow(etamncov[[2]][[1]]) == 1) {
+    out <- exp(out) * t(do.call("cbind", w.star.list))
+  } else {
+    out <- exp(out) * do.call("rbind", w.star.list)
+  }
   
   return( log( rowSums(out) ) )
 }
@@ -174,9 +184,9 @@ eta_moments <- function(samps, N) {
   for (i in 1:N) {
     tmpcol <- grep(paste0("eta[", i, ","), colnames(etasamps), fixed = TRUE)
 
-    etamns[[i]] <- colMeans(etasamps[, tmpcol])
+    etamns[[i]] <- colMeans(etasamps[, tmpcol, drop = FALSE])
 
-    etacovs[[i]] <- cov(etasamps[, tmpcol])
+    etacovs[[i]] <- cov(etasamps[, tmpcol, drop = FALSE])
   }
 
   list(etamns, etacovs)

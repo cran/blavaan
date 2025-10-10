@@ -42,7 +42,8 @@ group_sparse_skeleton <- function(skeleton) {
     tmpv <- c(tmpv, list(parts$v))
   }
 
-  vdat <- wdat <- matrix(0, Ng, max(g_len))
+  vdat <- matrix(1, Ng, max(g_len))
+  wdat <- matrix(0, Ng, max(g_len))
   udat <- matrix(0, Ng, max(u_len))
 
   for (g in 1:Ng) {
@@ -73,24 +74,18 @@ format_priors <- function(lavpartable, level = 1L) {
     lavpartable <- lavpartable[order(lavpartable$col, lavpartable$row),]
   }
 
-  transtab <- list(c('lambda_y_mn', 'lambda_y_sd', 'len_lam_y'),
-                   c('lambda_x_mn', 'lambda_x_sd', 'len_lam_x'),
-                   c('gamma_mn', 'gamma_sd', 'len_gam'),
-                   c('b_mn', 'b_sd', 'len_b'),
+  transtab <- list(c('lambda_y_mn', 'lambda_y_sd', 'len_lam_y', 'lambda_y_pri', 'lambda_y_blk'),
+                   c('b_mn', 'b_sd', 'len_b', 'b_pri', 'b_blk'),
                    c('theta_sd_shape', 'theta_sd_rate', 'len_thet_sd', 'theta_pow'),
-                   c('theta_x_sd_shape', 'theta_x_sd_rate', 'len_thet_x_sd', 'theta_x_pow'),
                    c('theta_r_alpha', 'theta_r_beta', 'len_thet_r'),
-                   c('theta_x_r_alpha', 'theta_x_r_beta', 'len_thet_x_r'),
                    c('psi_sd_shape', 'psi_sd_rate', 'len_psi_sd', 'psi_pow'),
                    c('psi_r_alpha', 'psi_r_beta', 'len_psi_r'),
-                   c('phi_sd_shape', 'phi_sd_rate', 'len_phi_sd', 'phi_pow'),
-                   c('phi_r_alpha', 'phi_r_beta', 'len_phi_r'),
-                   c('nu_mn', 'nu_sd', 'len_nu'),
-                   c('alpha_mn', 'alpha_sd', 'len_alph'),
+                   c('nu_mn', 'nu_sd', 'len_nu', 'nu_pri', 'nu_blk'),
+                   c('alpha_mn', 'alpha_sd', 'len_alph', 'alpha_pri', 'alpha_blk'),
                    c('tau_mn', 'tau_sd', 'len_tau'))
 
-  mats <- c('lambda', 'lambda_x', 'gamma', 'beta', 'thetavar', 'cov.xvar', 'thetaoff',
-            'cov.xoff', 'psivar', 'psioff', 'phivar', 'phioff', 'nu', 'alpha', 'tau')
+  mats <- c('lambda', 'beta', 'thetavar', 'thetaoff',
+            'psivar', 'psioff', 'nu', 'alpha', 'tau')
   if (level == 2L) {
     newmats <- c('lambda', 'beta', 'thetavar', 'thetaoff', 'psivar', 'psioff', 'nu', 'alpha')
     subloc <- match(newmats, mats)
@@ -100,6 +95,19 @@ format_priors <- function(lavpartable, level = 1L) {
   }
 
   out <- list()
+
+  ## shrinkage priors without <.>
+  shrpris <- which(grepl("shrink_t", lavpartable$prior) & !grepl("<?>", lavpartable$prior))
+  if (length(shrpris) > 0) {
+    lavpartable$prior[shrpris] <- paste0(lavpartable$prior[shrpris], "<999>")
+  }
+  ## if we have prior blocks specified via <.>, number them for the whole partable
+  blkpris <- grep("<?>", lavpartable$prior)
+  blknum <- rep(0, length(lavpartable$prior))
+  if (length(blkpris) > 0) {
+    blknum[blkpris] <- as.numeric( as.factor(lavpartable$prior[blkpris]) )
+  }
+  lavpartable$blknum <- blknum
   
   for (i in 1:length(mats)) {
     mat <- origmat <- mats[i]
@@ -125,6 +133,8 @@ format_priors <- function(lavpartable, level = 1L) {
 
     prisel <- prisel & (lavpartable$free > 0)
     thepris <- lavpartable$prior[prisel]
+    priblks <- lavpartable$blknum[prisel]
+    blkmats <- mat %in% c("nu", "lambda", "beta", "alpha")
 
     if (length(thepris) > 0) {
       textpris <- thepris[thepris != ""]
@@ -132,14 +142,21 @@ format_priors <- function(lavpartable, level = 1L) {
       prisplit <- strsplit(textpris, "[, ()]+")
       
       param1 <- sapply(prisplit, function(x) x[2])
+      prinms <- sapply(prisplit, function(x) x[1])
 
-      if (!grepl("\\[", prisplit[[1]][3])) {
+      if (!grepl("\\[", prisplit[[1]][3]) & !blkmats) {
         param2 <- sapply(prisplit, function(x) x[3])
-        if (any(is.na(param2)) & mat == "lvrho") {
+        if (any(is.na(param2)) & mat %in% c("rho", "lvrho")) {
           ## omit lkj here
           param1 <- param1[!is.na(param2)]
           param2 <- param2[!is.na(param2)]
         }
+      } else if (blkmats) {
+        priblks <- array(priblks[thepris != ""], sum(thepris != ""))
+        pritype <- array(0, length(param1))
+        pritype[prinms == "shrink_t"] <- 1
+        param2 <- sapply(prisplit, function(x) x[3])
+        param2 <- as.numeric(param2)
       } else {
         param2 <- rep(NA, length(param1))
       }
@@ -163,6 +180,8 @@ format_priors <- function(lavpartable, level = 1L) {
       param1 <- array(0, 0)
       param2 <- array(0, 0)
       powpar <- 1
+      pritype <- array(0, 0)
+      priblks <- array(0, 0)
     }
 
     out[[ transtab[[i]][1] ]] <- param1
@@ -171,6 +190,10 @@ format_priors <- function(lavpartable, level = 1L) {
 
     if (origmat %in% c('thetavar', 'cov.xvar', 'psivar', 'phivar')) {
       out[[ transtab[[i]][4] ]] <- powpar
+    }
+    if (blkmats) {
+      out[[ transtab[[i]][4] ]] <- pritype
+      out[[ transtab[[i]][5] ]] <- priblks
     }
   } # mats
 
@@ -184,14 +207,21 @@ format_priors <- function(lavpartable, level = 1L) {
 # @return nothing
 check_priors <- function(lavpartable) {
   right_pris <- sapply(dpriors(target = "stan"), function(x) strsplit(x, "[, ()]+")[[1]][1])
+  ## add additional prior options here
+  new_pri <- rep("shrink_t", 4); names(new_pri) <- c("nu", "alpha", "lambda", "beta")
+  right_pris <- c(right_pris, new_pri)
   pt_pris <- sapply(lavpartable$prior[lavpartable$prior != ""], function(x) strsplit(x, "[, ()]+")[[1]][1])
   names(pt_pris) <- lavpartable$mat[lavpartable$prior != ""]
-  right_pris <- c(right_pris, lvrho = "lkj_corr")
+  right_pris <- c(right_pris, rho = "lkj_corr", lvrho = "lkj_corr")
   primatch <- match(names(pt_pris), names(right_pris))
-  badpris <- which(pt_pris != right_pris[primatch])
-
-  ## lvrho entries could also receive beta priors
-  okpris <- which(names(pt_pris[badpris]) == "lvrho" & pt_pris[badpris] == "beta")
+  badpris <- rep(FALSE, length(pt_pris))
+  for (i in 1:length(pt_pris)) {
+    badpris[i] <- !(pt_pris[i] %in% right_pris[names(right_pris) == names(pt_pris)[i]])
+  }
+  badpris <- which(badpris)
+  ## rho entries could also receive beta priors
+  okpris <- c( which(names(pt_pris[badpris]) == "lvrho" & pt_pris[badpris] == "beta"),
+               which(names(pt_pris[badpris]) == "rho" & pt_pris[badpris] == "beta"))
   if (length(okpris) > 0) badpris <- badpris[-okpris]
   
   if (length(badpris) > 0) {
@@ -210,17 +240,17 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
                           startrow, endrow, save_lvs = FALSE, do_test = TRUE,
                           Lambda_y_skeleton, # skeleton matrices
                           Lambda_x_skeleton, Gamma_skeleton, B_skeleton,
-                          Theta_skeleton, Theta_r_skeleton,
-                          Theta_x_skeleton, Theta_x_r_skeleton,
+                          Theta_skeleton, Theta_r_skeleton, Theta_r_skeleton_f,
                           Psi_skeleton, Psi_r_skeleton, Psi_r_skeleton_f, Phi_skeleton,
                           Phi_r_skeleton, Nu_skeleton, Alpha_skeleton, Tau_skeleton,
                           w1skel, w2skel, w3skel, # eq constraint matrices
-                          w4skel, w5skel, w6skel, w7skel, w8skel,
+                          w4skel, w5skel, w7skel, w8skel,
                           w9skel, w10skel, w11skel, w12skel, w13skel,
                           w14skel, w15skel, emiter,
                           lam_y_sign, lam_x_sign, alph_sign, # sign constraint matrices
                           gam_sign, b_sign, psi_r_sign, psi_r_sign_f,
-                          nblk, psidims, blkse, phi_r_sign,
+                          psinblk, psidims, psiblkse, psiorder, psirevord, phi_r_sign,
+                          thetanblk, thetadims, thetablkse, thetaorder, thetarevord,
                           lavpartable = NULL, # for priors
                           dumlv = NULL, # for sampling lvs
                           wigind = NULL, # wiggle indicator
@@ -232,16 +262,19 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
                           within_idx, N_within, both_idx, N_both, ov_idx1, ov_idx2, p_tilde, N_lev,
                           Lambda_y_skeleton_c = NULL, # level 2 matrices
                           B_skeleton_c = NULL, Theta_skeleton_c = NULL, Theta_r_skeleton_c = NULL,
+                          Theta_r_skeleton_f_c = NULL,
                           Psi_skeleton_c = NULL, Psi_r_skeleton_c = NULL, Psi_r_skeleton_f_c = NULL,
                           Nu_skeleton_c = NULL, Alpha_skeleton_c = NULL,
-                          w1skel_c = NULL, w4skel_c = NULL, w5skel_c = NULL, w7skel_c = NULL,
+                          w1skel_c = NULL, w4skel_c = NULL, w5skel_c = NULL, w7skel_c = NULL, w8skel_c = NULL,
                           w9skel_c = NULL, w10skel_c = NULL, w11skel_c = NULL, w13skel_c = NULL,
                           w14skel_c = NULL,
                           lam_y_sign_c = NULL, b_sign_c = NULL, alph_sign_c = NULL, psi_r_sign_c = NULL,
-                          psi_r_sign_f_c, nblk_c, psidims_c, blkse_c,                          
+                          psi_r_sign_f_c, psinblk_c, psidims_c, psiblkse_c, psiorder_c, psirevord_c,
+                          thetanblk_c, thetadims_c, thetablkse_c, thetaorder_c, thetarevord_c,
                           phi_r_sign_c = NULL, dumlv_c = NULL, wigind_c = NULL,
                           Ndum = NULL, dum_ov_idx = NULL, dum_lv_idx = NULL, # for bsam
                           Ndum_x = NULL, dum_ov_x_idx = NULL, dum_lv_x_idx = NULL,
+                          measnblk = NULL, measblkse = NULL, measorder = NULL, measrevord = NULL,
                           ngh = NULL, ghnode = NULL, ghwt = NULL,
                           ...) {
   
@@ -284,6 +317,10 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$Ndum_x <- Ndum_x
   dat$dum_ov_x_idx <- dum_ov_x_idx
   dat$dum_lv_x_idx <- dum_lv_x_idx
+  dat$measnblk <- measnblk
+  dat$measblkse <- measblkse
+  dat$measorder <- measorder
+  dat$measrevord <- measrevord
   dat$ngh <- ngh
   dat$ghnode <- ghnode
   dat$ghwt <- ghwt
@@ -374,10 +411,10 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   ## level 1 matrix info
   dat <- c(dat, stanmarg_matdata(dat, Lambda_y_skeleton, Lambda_x_skeleton,
                                  Gamma_skeleton, B_skeleton, Theta_skeleton,
-                                 Theta_r_skeleton, Theta_x_skeleton, Theta_x_r_skeleton,
+                                 Theta_r_skeleton, 
                                  Psi_skeleton, Psi_r_skeleton, Phi_skeleton, Phi_r_skeleton,
                                  Nu_skeleton, Alpha_skeleton, Tau_skeleton, dumlv,
-                                 Psi_r_skeleton_f, level = 1L))
+                                 Psi_r_skeleton_f, Theta_r_skeleton_f, level = 1L))
   dat$lam_y_sign <- lam_y_sign
   dat$w1skel <- w1skel
   #dat$lam_x_sign <- lam_x_sign
@@ -386,16 +423,22 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$w4skel <- w4skel
   dat$b_sign <- b_sign
   dat$w5skel <- w5skel
-  dat$w6skel <- w6skel
   dat$w7skel <- w7skel
   dat$w8skel <- w8skel
   dat$w9skel <- w9skel
   dat$w10skel <- w10skel
   dat$w11skel <- w11skel
   dat$psi_r_sign <- psi_r_sign
-  dat$nblk <- nblk
+  dat$psinblk <- psinblk
   dat$psidims <- psidims
-  dat$blkse <- blkse
+  dat$psiblkse <- psiblkse
+  dat$psiorder <- psiorder
+  dat$psirevord <- psirevord
+  dat$thetanblk <- thetanblk
+  dat$thetablkse <- thetablkse
+  dat$thetadims <- thetadims
+  dat$thetaorder <- thetaorder
+  dat$thetarevord <- thetarevord
 
   dat$w13skel <- w13skel
   dat$w14skel <- w14skel
@@ -405,7 +448,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   ## level 2 matrices
   dat <- c(dat, stanmarg_matdata(dat, Lambda_y_skeleton = Lambda_y_skeleton_c,
                                  B_skeleton = B_skeleton_c, Theta_skeleton = Theta_skeleton_c,
-                                 Theta_r_skeleton = Theta_r_skeleton_c,
+                                 Theta_r_skeleton = Theta_r_skeleton_c, Theta_r_skeleton_f = Theta_r_skeleton_f_c,
                                  Psi_skeleton = Psi_skeleton_c, Psi_r_skeleton = Psi_r_skeleton_c,
                                  Psi_r_skeleton_f = Psi_r_skeleton_f_c,
                                  Nu_skeleton = Nu_skeleton_c, Alpha_skeleton = Alpha_skeleton_c,
@@ -416,16 +459,24 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$b_sign_c <- b_sign_c
   dat$w5skel_c <- w5skel_c
   dat$w7skel_c <- w7skel_c
+  dat$w8skel_c <- w8skel_c
   dat$w9skel_c <- w9skel_c
   dat$w10skel_c <- w10skel_c
   dat$w11skel_c <- w11skel_c
   dat$psi_r_sign_c <- psi_r_sign_c
-  dat$nblk_c <- nblk_c
+  dat$psinblk_c <- psinblk_c
   dat$psidims_c <- psidims_c
-  dat$blkse_c <- blkse_c
+  dat$psiblkse_c <- psiblkse_c
+  dat$psiorder_c <- psiorder_c
+  dat$psirevord_c <- psirevord_c
   dat$w13skel_c <- w13skel_c
   dat$alph_sign_c <- alph_sign_c
   dat$w14skel_c <- w14skel_c
+  dat$thetanblk_c <- thetanblk_c
+  dat$thetablkse_c <- thetablkse_c
+  dat$thetadims_c <- thetadims_c
+  dat$thetaorder_c <- thetaorder_c
+  dat$thetarevord_c <- thetarevord_c
   
 
   ## priors, first making sure they match what is in the stan file
@@ -441,7 +492,19 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
     dat <- c(dat, format_priors(lavpartable[lavpartable$level == levlabs[1],]))
     dat <- c(dat, format_priors(lavpartable[lavpartable$level == levlabs[2],], level = 2L))
   }
-  
+  allblks <- with(dat, c(lambda_y_blk, b_blk, nu_blk, alpha_blk))
+  priblks <- table(c(0, allblks))[-1]
+  dat$npriblks <- length(priblks)
+  dat$priblklen <- 0
+  dat$blkparm1 <- array(0, 0)
+  dat$blkparm2 <- array(0, 0)
+  if (dat$npriblks > 0) {
+    dat$priblklen <- max(priblks)
+    allparm1 <- with(dat, c(lambda_y_mn, b_mn, nu_mn, alpha_mn))
+    dat$blkparm1 <- array(tapply(allparm1[allblks > 0], allblks[allblks > 0], head, 1), dat$npriblks)
+    allparm2 <- with(dat, c(lambda_y_sd, b_sd, nu_sd, alpha_sd))
+    dat$blkparm2 <- array(tapply(allparm2[allblks > 0], allblks[allblks > 0], head, 1), dat$npriblks)
+  }  
   return(dat)
 }
 
@@ -449,12 +512,11 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
 ## create data on model matrices
 stanmarg_matdata <- function(indat, Lambda_y_skeleton, Lambda_x_skeleton = NULL,
                              Gamma_skeleton = NULL, B_skeleton, Theta_skeleton,
-                             Theta_r_skeleton, Theta_x_skeleton = NULL,
-                             Theta_x_r_skeleton = NULL, Psi_skeleton,
+                             Theta_r_skeleton, Psi_skeleton,
                              Psi_r_skeleton, Phi_skeleton = NULL,
                              Phi_r_skeleton = NULL, Nu_skeleton, Alpha_skeleton,
                              Tau_skeleton = NULL, dumlv = NULL, Psi_r_skeleton_f = NULL,
-                             level = 1L) {
+                             Theta_r_skeleton_f = NULL, level = 1L) {
 
   dat <- list()
   dat$p <- dim(Lambda_y_skeleton)[2]
@@ -512,21 +574,6 @@ stanmarg_matdata <- function(indat, Lambda_y_skeleton, Lambda_x_skeleton = NULL,
   dat$w5use <- length(usethet)
   dat$usethet <- usethet
 
-  if (level == 1L) {
-    dThetx <- Theta_x_skeleton
-    for (g in 1:indat$Ng) {
-      tmpmat <- as.matrix(dThetx[g,,])
-      tmpmat[lower.tri(tmpmat)] <- tmpmat[upper.tri(tmpmat)] <- 0L
-      dThetx[g,,] <- tmpmat
-    }
-    tmpres <- group_sparse_skeleton(dThetx)
-    dat$len_w6 <- max(tmpres$g_len)
-    dat$w6 <- tmpres$w
-    dat$v6 <- tmpres$v
-    dat$u6 <- tmpres$u
-    dat$wg6 <- array(tmpres$g_len, length(tmpres$g_len))
-  }
-
   tmpres <- group_sparse_skeleton(Theta_r_skeleton)
   dat$len_w7 <- max(tmpres$g_len)
   dat$w7 <- tmpres$w
@@ -534,8 +581,8 @@ stanmarg_matdata <- function(indat, Lambda_y_skeleton, Lambda_x_skeleton = NULL,
   dat$u7 <- tmpres$u
   dat$wg7 <- array(tmpres$g_len, length(tmpres$g_len))
 
-  if (level == 1L) {
-    tmpres <- group_sparse_skeleton(Theta_x_r_skeleton)
+  if (!is.null(Theta_r_skeleton_f)) {
+    tmpres <- group_sparse_skeleton(Theta_r_skeleton_f)
     dat$len_w8 <- max(tmpres$g_len)
     dat$w8 <- tmpres$w
     dat$v8 <- tmpres$v
