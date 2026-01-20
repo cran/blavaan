@@ -11,7 +11,7 @@ blavaan <- function(...,  # default lavaan arguments
                     mcmcextra          = list(),
                     inits              = "simple",
                     convergence        = "manual",
-                    target             = "stan",
+                    target             = getOption("blavaan.target", "stan"),
                     save.lvs           = FALSE,
                     wiggle             = NULL,
                     wiggle.sd          = 0.1,
@@ -884,7 +884,11 @@ blavaan <- function(...,  # default lavaan arguments
                 if(save.lvs & target == "stan"){
                     if(lavoptions$.multilevel){
                         ## this handles dummy lvs so that we use the appropriate alpha:
-                        lav_eeta <- getFromNamespace("computeEETA", "lavaan")
+                        if (packageDescription("lavaan")$Version > "0.6-20") {
+                            lav_eeta <- getFromNamespace("lav_model_eeta", "lavaan")
+                        } else {
+                            lav_eeta <- getFromNamespace("computeEETA", "lavaan")
+                        }
                         eeta <- lav_eeta(lavmodel = lavmodel, lavsamplestats = lavsamplestats)
                         stanlvs <- samp_lvs_2lev(res, lavmodel, lavsamplestats, lavdata, parests$lavpartable, jagtrans$data, eeta)
                     } else {
@@ -1192,7 +1196,7 @@ blavaan <- function(...,  # default lavaan arguments
 bcfa <- bsem <- function(..., cp = "srs", dp = NULL,
     n.chains = 3, burnin, sample, adapt,
     mcmcfile = FALSE, mcmcextra = list(), inits = "simple",
-    convergence = "manual", target = "stan", save.lvs = FALSE, wiggle = NULL,
+    convergence = "manual", target = getOption("blavaan.target", "stan"), save.lvs = FALSE, wiggle = NULL,
     wiggle.sd = 0.1, prisamp = FALSE, jags.ic = FALSE, seed = NULL,
     bcontrol = list()) {
 
@@ -1233,7 +1237,7 @@ bcfa <- bsem <- function(..., cp = "srs", dp = NULL,
 bgrowth <- function(..., cp = "srs", dp = NULL,
     n.chains = 3, burnin, sample, adapt,
     mcmcfile = FALSE, mcmcextra = list(), inits = "simple",
-    convergence = "manual", target = "stan", save.lvs = FALSE, wiggle = NULL,
+    convergence = "manual", target = getOption("blavaan.target", "stan"), save.lvs = FALSE, wiggle = NULL,
     wiggle.sd = 0.1, prisamp = FALSE, jags.ic = FALSE, seed = NULL,
     bcontrol = list()) {
 

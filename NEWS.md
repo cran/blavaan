@@ -1,9 +1,19 @@
+# Version 0.5-10
+## New features
+* Ability to set options(blavaan.target = "") so that user does not need to use the target argument for each model estimation.
+
+* Bug fixes and internal improvements.
+
 # Version 0.5-9
 ## New features
 * This release contains bug fixes and internal improvements to how model covariance matrices are handled.
 
 ## Bugs/glitches:
 * For some ordinal models with no latent variables, information criteria are incorrect (inflated effective number of parameters).
+
+* For two-level datasets where rows are not ordered by cluster, latent variable predictions may not be ordered as expected.
+
+* LKJ priors on (sub-)blocks of covariance matrices only accept integer parameters (reported by Julius Pfadt).
 
 # Version 0.5-8
 ## New features

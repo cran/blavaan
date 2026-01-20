@@ -762,7 +762,8 @@ data {
   // for blocks within Theta_r that receive lkj
   array[5] int<lower=0> thetanblk;
   array[5] int<lower=2> thetadims;
-  array[sum(thetanblk), 7] int<lower=0> thetablkse;
+  array[sum(thetanblk), 6] int<lower=0> thetablkse;
+  vector[sum(thetanblk)] thetablkpri;
   int<lower=0> len_w8;
   array[Ng] int<lower=0> wg8;
   array[Ng] vector[len_w8] w8;
@@ -799,7 +800,8 @@ data {
   // for blocks within Psi_r that receive lkj
   array[5] int<lower=0> psinblk;
   array[5] int<lower=2> psidims;
-  array[sum(psinblk), 7] int<lower=0> psiblkse;
+  array[sum(psinblk), 6] int<lower=0> psiblkse;
+  vector[sum(psinblk)] psiblkpri;
   int<lower=0> len_w11;
   array[Ng] int<lower=0> wg11;
   array[Ng] vector[len_w11] w11;
@@ -898,7 +900,8 @@ data {
   // for blocks within Theta_r that receive lkj
   array[5] int<lower=0> thetanblk_c;
   array[5] int<lower=2> thetadims_c;
-  array[sum(thetanblk_c), 7] int<lower=0> thetablkse_c;
+  array[sum(thetanblk_c), 6] int<lower=0> thetablkse_c;
+  vector[sum(thetanblk_c)] thetablkpri_c;
   int<lower=0> len_w8_c;
   array[Ng] int<lower=0> wg8_c;
   array[Ng] vector[len_w8_c] w8_c;
@@ -935,7 +938,8 @@ data {
   // for blocks within Psi_r that receive lkj
   array[5] int<lower=0> psinblk_c;
   array[5] int<lower=2> psidims_c;
-  array[sum(psinblk_c), 7] int<lower=0> psiblkse_c;
+  array[sum(psinblk_c), 6] int<lower=0> psiblkse_c;
+  vector[sum(psinblk_c)] psiblkpri_c;
   int<lower=0> len_w11_c;
   array[Ng] int<lower=0> wg11_c;
   array[Ng] vector[len_w11_c] w11_c;
@@ -1733,15 +1737,15 @@ model { // N.B.: things declared in the model block do not get saved in the outp
       int arrayidx = psiblkse[k, 5];
 
       if (arrayidx == 1) {
-	target += lkj_corr_lpdf(Psi_r_mat_1[blkidx] | psiblkse[k,7]);
+	target += lkj_corr_lpdf(Psi_r_mat_1[blkidx] | psiblkpri[k]);
       } else if (arrayidx == 2) {
-	target += lkj_corr_lpdf(Psi_r_mat_2[blkidx] | psiblkse[k,7]);
+	target += lkj_corr_lpdf(Psi_r_mat_2[blkidx] | psiblkpri[k]);
       } else if (arrayidx == 3) {
-	target += lkj_corr_lpdf(Psi_r_mat_3[blkidx] | psiblkse[k,7]);	
+	target += lkj_corr_lpdf(Psi_r_mat_3[blkidx] | psiblkpri[k]);	
       } else if (arrayidx == 4) {
-	target += lkj_corr_lpdf(Psi_r_mat_4[blkidx] | psiblkse[k,7]);
+	target += lkj_corr_lpdf(Psi_r_mat_4[blkidx] | psiblkpri[k]);
       } else {
-	target += lkj_corr_lpdf(Psi_r_mat_5[blkidx] | psiblkse[k,7]);
+	target += lkj_corr_lpdf(Psi_r_mat_5[blkidx] | psiblkpri[k]);
       }      
     }
   }
@@ -1754,15 +1758,15 @@ model { // N.B.: things declared in the model block do not get saved in the outp
       int arrayidx = thetablkse[k, 5];
 
       if (arrayidx == 1) {
-	target += lkj_corr_lpdf(Theta_r_mat_1[blkidx] | thetablkse[k,7]);
+	target += lkj_corr_lpdf(Theta_r_mat_1[blkidx] | thetablkpri[k]);
       } else if (arrayidx == 2) {
-	target += lkj_corr_lpdf(Theta_r_mat_2[blkidx] | thetablkse[k,7]);
+	target += lkj_corr_lpdf(Theta_r_mat_2[blkidx] | thetablkpri[k]);
       } else if (arrayidx == 3) {
-	target += lkj_corr_lpdf(Theta_r_mat_3[blkidx] | thetablkse[k,7]);	
+	target += lkj_corr_lpdf(Theta_r_mat_3[blkidx] | thetablkpri[k]);	
       } else if (arrayidx == 4) {
-	target += lkj_corr_lpdf(Theta_r_mat_4[blkidx] | thetablkse[k,7]);
+	target += lkj_corr_lpdf(Theta_r_mat_4[blkidx] | thetablkpri[k]);
       } else {
-	target += lkj_corr_lpdf(Theta_r_mat_5[blkidx] | thetablkse[k,7]);
+	target += lkj_corr_lpdf(Theta_r_mat_5[blkidx] | thetablkpri[k]);
       }      
     }
   }
@@ -1792,15 +1796,15 @@ model { // N.B.: things declared in the model block do not get saved in the outp
       int arrayidx = psiblkse_c[k, 5];
 
       if (arrayidx == 1) {
-	target += lkj_corr_lpdf(Psi_r_mat_1_c[blkidx] | psiblkse_c[k,7]);
+	target += lkj_corr_lpdf(Psi_r_mat_1_c[blkidx] | psiblkpri_c[k]);
       } else if (arrayidx == 2) {
-	target += lkj_corr_lpdf(Psi_r_mat_2_c[blkidx] | psiblkse_c[k,7]);
+	target += lkj_corr_lpdf(Psi_r_mat_2_c[blkidx] | psiblkpri_c[k]);
       } else if (arrayidx == 3) {
-	target += lkj_corr_lpdf(Psi_r_mat_3_c[blkidx] | psiblkse_c[k,7]);	
+	target += lkj_corr_lpdf(Psi_r_mat_3_c[blkidx] | psiblkpri_c[k]);	
       } else if (arrayidx == 4) {
-	target += lkj_corr_lpdf(Psi_r_mat_4_c[blkidx] | psiblkse_c[k,7]);
+	target += lkj_corr_lpdf(Psi_r_mat_4_c[blkidx] | psiblkpri_c[k]);
       } else {
-	target += lkj_corr_lpdf(Psi_r_mat_5_c[blkidx] | psiblkse_c[k,7]);
+	target += lkj_corr_lpdf(Psi_r_mat_5_c[blkidx] | psiblkpri_c[k]);
       }      
     }
   } else if (len_free_c[10] > 0) {
@@ -1813,15 +1817,15 @@ model { // N.B.: things declared in the model block do not get saved in the outp
       int arrayidx = thetablkse_c[k, 5];
 
       if (arrayidx == 1) {
-	target += lkj_corr_lpdf(Theta_r_mat_1_c[blkidx] | thetablkse_c[k,7]);
+	target += lkj_corr_lpdf(Theta_r_mat_1_c[blkidx] | thetablkpri_c[k]);
       } else if (arrayidx == 2) {
-	target += lkj_corr_lpdf(Theta_r_mat_2_c[blkidx] | thetablkse_c[k,7]);
+	target += lkj_corr_lpdf(Theta_r_mat_2_c[blkidx] | thetablkpri_c[k]);
       } else if (arrayidx == 3) {
-	target += lkj_corr_lpdf(Theta_r_mat_3_c[blkidx] | thetablkse_c[k,7]);	
+	target += lkj_corr_lpdf(Theta_r_mat_3_c[blkidx] | thetablkpri_c[k]);	
       } else if (arrayidx == 4) {
-	target += lkj_corr_lpdf(Theta_r_mat_4_c[blkidx] | thetablkse_c[k,7]);
+	target += lkj_corr_lpdf(Theta_r_mat_4_c[blkidx] | thetablkpri_c[k]);
       } else {
-	target += lkj_corr_lpdf(Theta_r_mat_5_c[blkidx] | thetablkse_c[k,7]);
+	target += lkj_corr_lpdf(Theta_r_mat_5_c[blkidx] | thetablkpri_c[k]);
       }      
     }
   } else if (len_free_c[7] > 0) {

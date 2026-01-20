@@ -447,7 +447,8 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
     dat$w7skel <- matrix(0, 0, 3)
     dat$Theta_r_skeleton_f <- array(0, dim = c(Ng, 0, 0))
     dat$w8skel <- matrix(0, 0, 3)
-    dat$thetablkse <- matrix(0, 0, 7)
+    dat$thetablkse <- matrix(0, 0, 6)
+    dat$thetablkpri <- array(0, dim = 0)
     dat$thetanblk <- array(0, dim = 5)
     dat$thetadims <- array(3, dim = 5)
     dat$thetaorder <- dat$thetarevord <- array(1, dim = c(Ng, 0))
@@ -512,7 +513,6 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
     frnoblock <- blkres$frnoblock
     blkpsi <- blkres$blkmats
 
-
     frnums <- sapply(frnoblock, function(x) as.numeric(x[x != 0]))
     twsel <- lavpartable$free %in% frnums
     tmpwig <- lavpartable[twsel,'free'][which(lavpartable[twsel, 'plabel'] %in% wig)]
@@ -554,7 +554,8 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
     dat$Psi_r_skeleton_f <- array(0, dim = c(Ng, 0, 0))
     dat$w11skel <- matrix(0, 0, 3)
     dat$psi_r_sign_f <- matrix(0, 0, 3)
-    dat$psiblkse <- matrix(0, 0, 7)
+    dat$psiblkse <- matrix(0, 0, 6)
+    dat$psiblkpri <- array(0, dim = 0)
     dat$psinblk <- array(0, dim = 5)
     dat$psidims <- array(3, dim = 5)
     dat$psiorder <- dat$psirevord <- array(1, dim = c(Ng, 0))
@@ -715,6 +716,7 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
     ## for correlations in blocks, replace beta with lkj and deal with lkj priors
     if (nrow(dat$psiblkse) > 0) {
       blkse <- dat$psiblkse
+      dat$psiblkpri <- array(NA, dim = nrow(blkse))
       for (b in 1:nrow(blkse)) {
         blkgrp <- blkse[b, 'blkgrp']
         vrows <- dat$psiorder[blkgrp, blkse[b,1]:blkse[b,2]]
@@ -727,9 +729,9 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
         lptrow <- with(lavpartable, which(row == vrows[1] & col == vrows[2] &
                                           group == blkgrp & mat == "lvrho"))
         if (!dosam | length(lptrow) > 0) {
-          dat$psiblkse[b,7] <- as.numeric(gsub("(\\w+)\\(([^,]+)\\)", "\\2", lavpartable$prior[lptrow]))
+          dat$psiblkpri[b] <- as.numeric(gsub("(\\w+)\\(([^,]+)\\)", "\\2", lavpartable$prior[lptrow]))
         } else {
-          dat$psiblkse[b,7] <- 1
+          dat$psiblkpri[b] <- 1
         }
         lavpartable$prior[lkjrows] <- lavpartable$prior[lptrow]
       }
@@ -737,6 +739,7 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
 
     if (nrow(dat$thetablkse) > 0) {
       blkse <- dat$thetablkse
+      dat$thetablkpri <- array(NA, dim = nrow(blkse))
       for (b in 1:nrow(blkse)) {
         blkgrp <- blkse[b, 'blkgrp']
         vrows <- dat$thetaorder[blkgrp, blkse[b,1]:blkse[b,2]]
@@ -749,9 +752,9 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
         lptrow <- with(lavpartable, which(row == vrows[1] & col == vrows[2] &
                                           group == blkgrp & mat == "rho"))
         if (!dosam | length(lptrow) > 0) {
-          dat$thetablkse[b,7] <- as.numeric(gsub("(\\w+)\\(([^,]+)\\)", "\\2", lavpartable$prior[lptrow]))
+          dat$thetablkpri[b] <- as.numeric(gsub("(\\w+)\\(([^,]+)\\)", "\\2", lavpartable$prior[lptrow]))
         } else {
-          dat$thetablkse[b,7] <- 1
+          dat$thetablkpri[b] <- 1
         }
         lavpartable$prior[lkjrows] <- lavpartable$prior[lptrow]
       }
@@ -1175,11 +1178,6 @@ lav2standata <- function(lavobject, dosam = FALSE) {
     dat$Np <- dat$Ng
     dat$Nobs <- array(nvar, dat$Np)
     dat$Obsvar <- matrix(1:nvar, dat$Np, nvar, byrow=TRUE)
-    if (multilevel) {
-      ptot <- length(unique(c(Lp[[1]]$ov.idx[[1]]))) #, Lp$ov.idx[[2]])))
-      dat$Obsvar <- matrix(1:ptot, dat$Np, ptot, byrow=TRUE)
-      dat$Nobs <- array(ptot, dat$Np)
-    }
     dat$Nx <- array(length(xidx), dat$Np)
     dat$Nx_between <- array(length(xidxb), dat$Np)
 
@@ -1210,6 +1208,10 @@ lav2standata <- function(lavobject, dosam = FALSE) {
   dat$grpnum <- array(dat$grpnum, length(dat$grpnum))
 
   if (multilevel) {
+    ptot <- length(unique(c(Lp[[1]]$ov.idx[[1]]))) #, Lp$ov.idx[[2]])))
+    dat$Obsvar <- matrix(1:ptot, dat$Np, ptot, byrow=TRUE)
+    dat$Nobs <- array(ptot, dat$Np)
+
     ## NB: Lp has one list entry per group
     dat$nclus <- array(t(sapply(Lp, function(x) unlist(x$nclusters))), dim = c(Ng, 2))
     ## these are in one vector to avoid ragged arrays in Stan. We need ncluster_sizes to decide
@@ -1257,12 +1259,13 @@ lav2standata <- function(lavobject, dosam = FALSE) {
           cidx[[g]] <- cidx[[g]] + max(cidx[[(g - 1)]])
         }
       }
-      cidx <- unlist(cidx)
+      cidx <- unlist(cidx) ## FIXME assumes group 2 observations come after group 1 observations
     }
     mean_d_full <- rowsum.default(as.matrix(dat$YX), cidx) / dat$cluster_size
 
     tmpYX <- split.data.frame(dat$YX, cidx)
     dat$YX <- do.call("rbind", tmpYX)
+    dat$orig_id <- unlist(split(1:nrow(dat$YX), cidx))
     dat$log_lik_x_full <- llx_2l(Lp[[1]], dat$YX, mean_d_full, cidx)
     dat$mean_d_full <- lapply(1:nrow(mean_d_full), function(i) mean_d_full[i, dat$between_idx])
 
@@ -1405,8 +1408,9 @@ block_cov <- function(freemats, fr, mat, skel, Ng, dosam = FALSE) {
     if (length(ublksizes) > 5) blkmats <- FALSE
       out[[paste0(mat, "nblk")]] <- array(0, dim = 5)
       out[[paste0(mat, "dims")]] <- array(3, dim = 5)
-      out[[paste0(mat, "blkse")]] <- matrix(nrow = 0, ncol = 7)
+      out[[paste0(mat, "blkse")]] <- matrix(nrow = 0, ncol = 6)
       out[[paste0(mat, "order")]] <- out[[paste0(mat, "revord")]] <- matrix(1, nrow = Ng, ncol = dim(skel)[3])
+      out[[paste0(mat, "blkpri")]] <- array(0, dim = 0)
   } else {
     if (dosam) {
       blkgrp <- rep(1:length(blkinfo), times = sapply(blkinfo, function(x) sum(x$blkse[,3] == 1)))
@@ -1420,7 +1424,7 @@ block_cov <- function(freemats, fr, mat, skel, Ng, dosam = FALSE) {
       sizeidx <- blksizes == ublksizes[i]
       blkidx[sizeidx] <- cumsum(dupsiz[sizeidx]) + 1
     }
-    blkse <- cbind(blkse, blkgrp, arrayidx, blkidx, rep(1, nrow(blkse))) ## col 7 is for priors, handled later
+    blkse <- cbind(blkse, blkgrp, arrayidx, blkidx)
 
     nblk <- c(summary(factor(blksizes)), rep(0, 5 - length(ublksizes)))
     out[[paste0(mat, "nblk")]] <- array(nblk, dim = 5)
@@ -1429,6 +1433,7 @@ block_cov <- function(freemats, fr, mat, skel, Ng, dosam = FALSE) {
     out[[paste0(mat, "blkse")]] <- blkse
     out[[paste0(mat, "order")]] <- matorder
     out[[paste0(mat, "revord")]] <- matrevord
+    out[[paste0(mat, "blkpri")]] <- array(1, nrow(blkse))
   }
 
   ## zero out cors that are covered by a block, to get separate indexing for the full

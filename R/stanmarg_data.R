@@ -249,8 +249,8 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
                           w14skel, w15skel, emiter,
                           lam_y_sign, lam_x_sign, alph_sign, # sign constraint matrices
                           gam_sign, b_sign, psi_r_sign, psi_r_sign_f,
-                          psinblk, psidims, psiblkse, psiorder, psirevord, phi_r_sign,
-                          thetanblk, thetadims, thetablkse, thetaorder, thetarevord,
+                          psinblk, psidims, psiblkse, psiblkpri, psiorder, psirevord, phi_r_sign,
+                          thetanblk, thetadims, thetablkse, thetablkpri, thetaorder, thetarevord,
                           lavpartable = NULL, # for priors
                           dumlv = NULL, # for sampling lvs
                           wigind = NULL, # wiggle indicator
@@ -269,13 +269,13 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
                           w9skel_c = NULL, w10skel_c = NULL, w11skel_c = NULL, w13skel_c = NULL,
                           w14skel_c = NULL,
                           lam_y_sign_c = NULL, b_sign_c = NULL, alph_sign_c = NULL, psi_r_sign_c = NULL,
-                          psi_r_sign_f_c, psinblk_c, psidims_c, psiblkse_c, psiorder_c, psirevord_c,
-                          thetanblk_c, thetadims_c, thetablkse_c, thetaorder_c, thetarevord_c,
+                          psi_r_sign_f_c, psinblk_c, psidims_c, psiblkse_c, psiblkpri_c, psiorder_c, psirevord_c,
+                          thetanblk_c, thetadims_c, thetablkse_c, thetablkpri_c, thetaorder_c, thetarevord_c,
                           phi_r_sign_c = NULL, dumlv_c = NULL, wigind_c = NULL,
                           Ndum = NULL, dum_ov_idx = NULL, dum_lv_idx = NULL, # for bsam
                           Ndum_x = NULL, dum_ov_x_idx = NULL, dum_lv_x_idx = NULL,
                           measnblk = NULL, measblkse = NULL, measorder = NULL, measrevord = NULL,
-                          ngh = NULL, ghnode = NULL, ghwt = NULL,
+                          ngh = NULL, ghnode = NULL, ghwt = NULL, orig_id = NULL,
                           ...) {
   
   dat <- list()
@@ -324,6 +324,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$ngh <- ngh
   dat$ghnode <- ghnode
   dat$ghwt <- ghwt
+  dat$orig_id <- orig_id
   
   dat$use_suff <- 1L
   if (ord | multilev) dat$use_suff <- 0L
@@ -432,10 +433,12 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$psinblk <- psinblk
   dat$psidims <- psidims
   dat$psiblkse <- psiblkse
+  dat$psiblkpri <- psiblkpri
   dat$psiorder <- psiorder
   dat$psirevord <- psirevord
   dat$thetanblk <- thetanblk
   dat$thetablkse <- thetablkse
+  dat$thetablkpri <- thetablkpri
   dat$thetadims <- thetadims
   dat$thetaorder <- thetaorder
   dat$thetarevord <- thetarevord
@@ -467,6 +470,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$psinblk_c <- psinblk_c
   dat$psidims_c <- psidims_c
   dat$psiblkse_c <- psiblkse_c
+  dat$psiblkpri_c <- psiblkpri_c  
   dat$psiorder_c <- psiorder_c
   dat$psirevord_c <- psirevord_c
   dat$w13skel_c <- w13skel_c
@@ -474,6 +478,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$w14skel_c <- w14skel_c
   dat$thetanblk_c <- thetanblk_c
   dat$thetablkse_c <- thetablkse_c
+  dat$thetablkpri_c <- thetablkpri_c
   dat$thetadims_c <- thetadims_c
   dat$thetaorder_c <- thetaorder_c
   dat$thetarevord_c <- thetarevord_c

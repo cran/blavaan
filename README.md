@@ -31,7 +31,7 @@ fit <- bsem(model, data = PoliticalDemocracy)
 summary(fit)
 ```
 
-The development version of blavaan (containing updates not yet on CRAN) can be installed via the command below. Compilation is required; this may be a problem for users who currently rely on a binary version of blavaan from CRAN. A potential alternative is to install a binary from R-universe.
+The development version of blavaan (containing updates not yet on CRAN) can be installed via the command below. Compilation is required; this may be a problem for users who currently rely on a binary version of blavaan from CRAN. A potential alternative is to install a binary from [R-universe.](https://ecmerkle.r-universe.dev/blavaan)
 
 ```r
 remotes::install_github("ecmerkle/blavaan", INSTALL_opts = "--no-multiarch")
