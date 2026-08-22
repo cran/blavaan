@@ -188,7 +188,12 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
   ## is this SAM?
   dosam <- FALSE
   if ("dosam" %in% names(mcmcextra)) dosam <- mcmcextra$dosam
-  
+
+  ## search covariance matrices for unrestricted sub-blocks (for lkj priors)?
+  ## if FALSE, only a fully-unrestricted whole matrix gets an lkj prior (old behavior)
+  doblocks <- TRUE
+  if ("doblocks" %in% names(mcmcextra)) doblocks <- mcmcextra$doblocks
+
   ## data characteristics
   if (length(indat) == 0) {
     dat <- lav2standata(lavobject, dosam = dosam)
@@ -249,7 +254,7 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
     lavpartable <- lavpartable[order(lavpartable$col, lavpartable$row),]
   }
 
-  if (length(wiggle) > 0){
+  if (length(wiggle) > 0) {
     wigls <- wiglabels(lavpartable, wiggle, wiggle.sd)
     wig <- unlist(wigls$outlist)
     wigpris <- wigls$lavpartable$prior
@@ -358,13 +363,13 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
 
   ## 5. diag(Theta)
   if ("theta" %in% names(freemats[[1]])) {
-    fr <- lapply(freemats, function(x){
+    fr <- lapply(freemats, function(x) {
       dmat <- x$theta
       dmat[lower.tri(dmat)] <- dmat[upper.tri(dmat)] <- 0
       dmat}
       )
     
-    es <- lapply(estmats, function(x){
+    es <- lapply(estmats, function(x) {
       dmat <- x$theta
       dmat[lower.tri(dmat)] <- dmat[upper.tri(dmat)] <- 0
       dmat}
@@ -395,13 +400,13 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
 
   ## 7. Theta_r
   if ("theta" %in% names(freemats[[1]])) {
-    fr <- lapply(freemats, function(x){
+    fr <- lapply(freemats, function(x) {
       dmat <- x$theta
       diag(dmat) <- 0L
       dmat}
       )
 
-    es <- lapply(estmats, function(x){
+    es <- lapply(estmats, function(x) {
       dmat <- x$theta
       diag(dmat) <- 1L
       dmat[upper.tri(dmat)] <- 0L
@@ -409,7 +414,7 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
       )
 
     tmpatt <- matattr(fr, es, constrain, mat = "Theta_r", Ng, opts$std.lv, tmpwig, dest = dest)
-    blkres <- block_cov(freemats, fr, mat = "theta", skel = tmpatt$matskel, Ng = Ng, dosam = FALSE)
+    blkres <- block_cov(freemats, fr, mat = "theta", skel = tmpatt$matskel, Ng = Ng, dosam = FALSE, doblocks = doblocks)
     dat <- c(dat, blkres$out)
     frnoblock <- blkres$frnoblock
     blktheta <- blkres$blkmats
@@ -456,13 +461,13 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
 
   ## 9. diag(Psi)
   if ("psi" %in% names(freemats[[1]])) {
-    fr <- lapply(freemats, function(x){
+    fr <- lapply(freemats, function(x) {
       dmat <- x$psi
       dmat[lower.tri(dmat)] <- dmat[upper.tri(dmat)] <- 0
       dmat}
       )
     
-    es <- lapply(estmats, function(x){
+    es <- lapply(estmats, function(x) {
       dmat <- x$psi
       dmat[lower.tri(dmat)] <- dmat[upper.tri(dmat)] <- 0
       dmat}
@@ -494,13 +499,13 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
 
   ## 10. Psi_r
   if ("psi" %in% names(freemats[[1]])) {
-    fr <- lapply(freemats, function(x){
+    fr <- lapply(freemats, function(x) {
       dmat <- x$psi
       diag(dmat) <- 0L
       dmat}
       )
 
-    es <- lapply(estmats, function(x){
+    es <- lapply(estmats, function(x) {
       dmat <- x$psi
       diag(dmat) <- 1L
       dmat[upper.tri(dmat)] <- 0L
@@ -508,7 +513,7 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
       )
 
     tmpatt <- matattr(fr, es, constrain, mat = "Psi_r", Ng, opts$std.lv, tmpwig, dest = dest)
-    blkres <- block_cov(freemats, fr, mat = "psi", skel = tmpatt$matskel, Ng = Ng, dosam = dosam)
+    blkres <- block_cov(freemats, fr, mat = "psi", skel = tmpatt$matskel, Ng = Ng, dosam = dosam, doblocks = doblocks)
     dat <- c(dat, blkres$out)
     frnoblock <- blkres$frnoblock
     blkpsi <- blkres$blkmats
@@ -713,21 +718,38 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
     stanprires <- set_stanpars("", lpt, prifree, dp, "")
     lavpartable$prior <- stanprires$partable$prior
 
+    ## blkgrp (in dat$psiblkse/dat$thetablkse) is a per-level-local group
+    ## ordinal (1:Ng), assigned by block_cov() from freemats/estmats that
+    ## were already sliced down to a single level (see freemats[2*(1:Ng) -
+    ## 2 + level] above). lavpartable$group, by contrast, is NOT reliably a
+    ## matching 1:Ng group index here: for single-group models it's the
+    ## constant 1 (so it happens to agree with blkgrp), but for multi-group
+    ## *multilevel* models lavaan requires explicit "group: <label>" blocks
+    ## in the model syntax and then keeps those literal (often
+    ## non-numeric) labels in the group column, rather than renumbering to
+    ## 1:Ng -- so `group == blkgrp` silently matches nothing there. The
+    ## lavpartable$block column (added by lavMatrixRepresentation() above)
+    ## is always a clean sequential group*level block number regardless of
+    ## group labeling, so recover the correct block for this (blkgrp,
+    ## level) pair from it instead.
+    nlevs_blk <- if (multilevel) 2L else 1L
+
     ## for correlations in blocks, replace beta with lkj and deal with lkj priors
     if (nrow(dat$psiblkse) > 0) {
       blkse <- dat$psiblkse
       dat$psiblkpri <- array(NA, dim = nrow(blkse))
       for (b in 1:nrow(blkse)) {
         blkgrp <- blkse[b, 'blkgrp']
+        blknum <- (blkgrp - 1L) * nlevs_blk + level
         vrows <- dat$psiorder[blkgrp, blkse[b,1]:blkse[b,2]]
-        lkjrows <- with(lavpartable, which(group == blkse[b, 'blkgrp'] & mat == "lvrho" &
+        lkjrows <- with(lavpartable, which(block == blknum & mat == "lvrho" &
                                            (row %in% vrows) & (col %in% vrows) & row != col))
         nolkj <- lkjrows[!grepl("lkj", lavpartable$prior[lkjrows])]
         if (length(nolkj) > 0) {
           lavpartable$prior[nolkj] <- gsub("(\\w+)\\(([^,]+),([^)]+)\\)", "lkj_corr(\\2)", lavpartable$prior[nolkj])
         }
         lptrow <- with(lavpartable, which(row == vrows[1] & col == vrows[2] &
-                                          group == blkgrp & mat == "lvrho"))
+                                          block == blknum & mat == "lvrho"))
         if (!dosam | length(lptrow) > 0) {
           dat$psiblkpri[b] <- as.numeric(gsub("(\\w+)\\(([^,]+)\\)", "\\2", lavpartable$prior[lptrow]))
         } else {
@@ -742,15 +764,16 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
       dat$thetablkpri <- array(NA, dim = nrow(blkse))
       for (b in 1:nrow(blkse)) {
         blkgrp <- blkse[b, 'blkgrp']
+        blknum <- (blkgrp - 1L) * nlevs_blk + level
         vrows <- dat$thetaorder[blkgrp, blkse[b,1]:blkse[b,2]]
-        lkjrows <- with(lavpartable, which(group == blkse[b, 'blkgrp'] & mat == "rho" &
+        lkjrows <- with(lavpartable, which(block == blknum & mat == "rho" &
                                            (row %in% vrows) & (col %in% vrows) & row != col))
         nolkj <- lkjrows[!grepl("lkj", lavpartable$prior[lkjrows])]
         if (length(nolkj) > 0) {
           lavpartable$prior[nolkj] <- gsub("(\\w+)\\(([^,]+),([^)]+)\\)", "lkj_corr(\\2)", lavpartable$prior[nolkj])
         }
         lptrow <- with(lavpartable, which(row == vrows[1] & col == vrows[2] &
-                                          group == blkgrp & mat == "rho"))
+                                          block == blknum & mat == "rho"))
         if (!dosam | length(lptrow) > 0) {
           dat$thetablkpri[b] <- as.numeric(gsub("(\\w+)\\(([^,]+)\\)", "\\2", lavpartable$prior[lptrow]))
         } else {
@@ -758,7 +781,7 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
         }
         lavpartable$prior[lkjrows] <- lavpartable$prior[lptrow]
       }
-    }    
+    }
   }
 
   ## remove priors from equality-constrained parameters
@@ -813,9 +836,7 @@ lav2stanmarg <- function(lavobject, dp, n.chains, inits, wiggle=NULL, wiggle.sd=
       if (level == 2L) {
         names(ini[[i]]) <- paste0(names(ini[[i]]), "_c")
       } else {
-        ## if ordinal, tau needs a specific ordering, with augmented z's to match
-        tauvec <- which(names(ini[[i]]) == "Tau_free")
-        if(length(tauvec) > 0) {
+        if(dat$Noent > 0) {
           z_aug <- rep(.5, dat$Noent)
 
           ## for (j in 1:dat$Nord) {
@@ -864,14 +885,31 @@ coeffun_stanmarg <- function(lavpartable, lavfree, free2, lersdat, rsob, dmnames
   if (!(level %in% c(1L, 2L))) stop("blavaan ERROR: Bad level specification in coeffun().", call. = FALSE)
   
   stanfit <- !is.null(rsob)
-  if(stanfit){
+  cmdstanfit <- inherits(rsob, "CmdStanFit")
+  if (cmdstanfit) {
+    rssumm <- rsob$summary(variables = dmnames,
+                           posterior::default_summary_measures(),
+                           posterior::default_convergence_measures(),
+                           extra_quantiles = ~posterior::quantile2(., probs = c(.025, .5, .975)))
+    class(rssumm) <- "data.frame"
+    rsnames <- colnames(rssumm)
+    oldnames <- c("q2.5", "q50", "q97.5", "ess_bulk", "rhat")
+    names(rssumm)[match(oldnames, rsnames)] <- c("2.5%", "50%", "97.5%", "n_eff", "Rhat")
+    rownames(rssumm) <- rssumm$variable
+    rssumm <- list(summary = rssumm)
+  } else if(stanfit) {
     rssumm <- rstan::summary(rsob)
-    rsmcmc <- as.array(rsob)
+  }
 
+  if(stanfit) {
     ## posterior means:
-    if(fun == "mean"){
+    if(fun == "mean") {
       b.est <- rssumm$summary[,"mean"]
-    } else if(fun == "median"){
+      if(is.null(names(b.est))) {
+        ## must be cmdstan
+        names(b.est) <- rssumm$summary$variable
+      }
+    } else if(fun == "median") {
       b.est <- rssumm$summary[,"50%"]
     } else {
       stop(paste0("blavaan ERROR: ", fun, " not implemented in coeffun()."), call. = FALSE)
@@ -917,11 +955,11 @@ coeffun_stanmarg <- function(lavpartable, lavfree, free2, lersdat, rsob, dmnames
   ## check names in lavfree
   deltloc <- which(names(lavfree) == "delta")
   if(length(deltloc) > 0) lavfree <- lavfree[-deltloc]
-  if(!all(names(lavfree) %in% mapping) || is.null(names(lavfree))){
+  if(!all(names(lavfree) %in% mapping) || is.null(names(lavfree))) {
     ## multiple groups? FIXME handle delta
     deltloc <- which(names(lavfree[[1]]) == "delta")
     if(length(deltloc) > 0) lavfree <- lapply(lavfree, function(x) x[-deltloc])
-    if(!all(names(lavfree[[1]]) %in% mapping)){
+    if(!all(names(lavfree[[1]]) %in% mapping)) {
       stop("blavaan ERROR: unrecognized lavaan model matrix.")
     }
     ngrp <- length(lavfree)
@@ -935,12 +973,12 @@ coeffun_stanmarg <- function(lavpartable, lavfree, free2, lersdat, rsob, dmnames
   freenums <- lapply(free2, function(x) lapply(x, function(y) y[y > 0]))
   tmpfree <- unlist(lavfree)
   nfree <- length(unique(tmpfree[tmpfree > 0]))
-  if(any(lavpartable$free > 0)){
+  if(any(lavpartable$free > 0)) {
     freevec <- lavpartable$free[lavpartable$free > 0]
   }
 
   vcorr <- NULL
-  if(stanfit){
+  if(stanfit) {
     rowidx <- rowidx2 <- rep(NA, nfree) # row index of stan est and summary containing the parameters (for vcorr)
 
     ## 1. get free par vector
@@ -948,7 +986,7 @@ coeffun_stanmarg <- function(lavpartable, lavfree, free2, lersdat, rsob, dmnames
     ## 3. fill "x" in using lavaan free
     ## 4. record freeidx, double-counting free parameters
     est <- sdvec <- rep(NA, nfree)
-    for(m in 1:length(freeidx[[1]])){
+    for(m in 1:length(freeidx[[1]])) {
       stanvec <- names(mapping)[mapping == names(freeidx[[1]])[m]]
       wskel <- names(mapping2)[mapping == names(freeidx[[1]])[m]]
       wvec <- paste0("w", wskel, matmod)
@@ -958,7 +996,7 @@ coeffun_stanmarg <- function(lavpartable, lavfree, free2, lersdat, rsob, dmnames
       ## 2 for cov/var vectors, 1 otherwise
       if(length(stanvec) > 2) stop("blavaan ERROR: problem with mapping from stan to lavaan")
 
-      for(j in 1:length(stanvec)){
+      for(j in 1:length(stanvec)) {
         freename <- names(mapping3)[mapping3 == stanvec[j]]
         parnums <- do.call("c", freenums[[freename]])
         parnums <- match(parnums, freevec)
@@ -966,18 +1004,18 @@ coeffun_stanmarg <- function(lavpartable, lavfree, free2, lersdat, rsob, dmnames
 
         if(is.na(parnums[1])) next
 
-        if(any(!is.finite(lersdat[[wvec[j]]]))){
+        if(any(!is.finite(lersdat[[wvec[j]]]))) {
           tmpw <- tmpw[1:(sum(!is.finite(lersdat[[wvec[j]]]))), , drop=FALSE]
         } else {
           tmpw <- NULL
         }
 
-        if(NROW(tmpw) > 0){
+        if(NROW(tmpw) > 0) {
           ## need rowvec & rowvec2 because stan summary rows
           ## ordered differently from stan draws rows
           samppar <- (tmpw[,1] == 0) | (tmpw[,3] == 1) # free or constrained prior
           parvec <- tmpsd <- rowvec <- rowvec2 <- rep(NA, NROW(tmpw))
-          if(level == 1L){
+          if(level == 1L) {
             rowvec[samppar] <- which(grepl(stanvec[j], names(b.est)) & !(grepl("_c\\[", names(b.est))))
             rowvec2[samppar] <- which(grepl(stanvec[j], dmnames) & !(grepl("_c\\[", dmnames)))
           } else {
@@ -1013,7 +1051,12 @@ coeffun_stanmarg <- function(lavpartable, lavfree, free2, lersdat, rsob, dmnames
 
     ## est + psrf
     lavpartable$est[lavpartable$free > 0] <- est
-    if(rsob@stan_args[[1]]$method == "variational"){
+    if(cmdstanfit) {
+      varmeth <- rsob$metadata()$method == "variational"
+    } else {
+      varmeth <- rsob@stan_args[[1]]$method == "variational"
+    }
+    if(varmeth) {
       lavpartable$psrf[lavpartable$free > 0] <- rssumm$summary[rowidx2,"khat"]
     } else {
       lavpartable$psrf[lavpartable$free > 0] <- rssumm$summary[rowidx2,"Rhat"]
@@ -1025,10 +1068,10 @@ coeffun_stanmarg <- function(lavpartable, lavfree, free2, lersdat, rsob, dmnames
   }
   
   ## matrices and names
-  if("level" %in% names(lavpartable)){
+  if("level" %in% names(lavpartable)) {
     olpt <- lavMatrixRepresentation(olpt, add.attributes = TRUE, as.data.frame. = FALSE)
 
-    if(level == 2L){
+    if(level == 2L) {
       olpt <- lapply(olpt, function(x) x[olpt$level == levlabs[2]])
     } else {
       olpt <- lapply(olpt, function(x) x[olpt$level == levlabs[1] | olpt$op %in% c("==", ":=")])
@@ -1042,6 +1085,28 @@ coeffun_stanmarg <- function(lavpartable, lavfree, free2, lersdat, rsob, dmnames
        lavpartable = lavpartable,
        vcorr = vcorr, sd = sdvec,
        stansumm = rssumm$summary)
+}
+
+## Convert a list of lavaan Mp objects (one per group), each with a logical
+## $pat observed/missing matrix (npatterns x nvar), into the flattened
+## Obsvar/Nobs representation blavaan's FIML machinery uses: for each
+## pattern (concatenated across groups), Nobs[p] observed variable column
+## indices first, followed by the missing indices, both in original column
+## order. Also used (per group) by samp_lvs_2lev() in lvgqs.R to build
+## genuine within-cluster missing-data patterns for two-level LV sampling.
+lav_mp_to_obsvar <- function(Mp, nvar) {
+  Nobs <- do.call("c", lapply(Mp, function(x) rowSums(x$pat)))
+  obsidx <- do.call("c", lapply(Mp, function(x) apply(x$pat, 1, which, simplify = FALSE)))
+  Np <- length(Nobs)
+  allvars <- seq_len(nvar)
+  Obsvar <- matrix(0L, Np, nvar)
+  for (i in seq_len(Np)) {
+    Obsvar[i, seq_len(Nobs[i])] <- obsidx[[i]]
+    if (Nobs[i] < nvar) {
+      Obsvar[i, (Nobs[i] + 1):nvar] <- allvars[!(allvars %in% obsidx[[i]])]
+    }
+  }
+  list(Np = Np, Nobs = Nobs, Obsvar = Obsvar, obsidx = obsidx)
 }
 
 ## organize information about the observed data for Stan (separately from model information)
@@ -1065,6 +1130,16 @@ lav2standata <- function(lavobject, dosam = FALSE) {
   dat$ord <- ord
   dat$multilev <- multilevel
   dat$N <- lavInspect(lavobject, 'nobs')
+  if (multilevel) {
+    ## for two-level models, dat$N must be the RAW per-group row count of
+    ## YX, not lavInspect(.,'nobs') (which excludes lavaan's "globally
+    ## empty" rows) -- those rows are still real level-1 units belonging to
+    ## a cluster and must stay in YX/grpnum/Ntot/etc. for row-count
+    ## bookkeeping to stay consistent; their Y-pattern likelihood
+    ## contribution is 0, handled by the pattern machinery itself, not by
+    ## dropping the row
+    dat$N <- sapply(YX, NROW)
+  }
 
   if (multilevel) {
     dat$ov_idx1 <- Lp[[1]]$ov.idx[[1]]
@@ -1116,8 +1191,14 @@ lav2standata <- function(lavobject, dosam = FALSE) {
   ## lavobject@SampleStats@missing.flag is TRUE when missing='ml',
   ## regardless of whether data are missing
   misflag <- any(sapply(lavobject@Data@X, function(x) any(is.na(x))))
-  if (misflag) {
-    dat$miss <- 1L
+  dat$miss <- as.integer(misflag)
+  if (misflag && !multilevel) {
+    ## NB: this per-pattern Np/Obsvar/startrow/endrow machinery assumes a
+    ## pattern is a contiguous row block, which is not true of two-level
+    ## Y-patterns (rows are grouped by cluster, not by pattern); multilevel
+    ## models always use the placeholder "else" branch below instead, and
+    ## get their own separate pattern machinery further down (misflag-gated,
+    ## inside the `if (multilevel)` block)
     Mp <- lavobject@Data@Mp
     cases <- lapply(Mp, function(x) do.call("c", x$case.idx))
     misgrps <- lapply(Mp, function(x) x$freq)
@@ -1130,12 +1211,13 @@ lav2standata <- function(lavobject, dosam = FALSE) {
     dat$endrow <- tapply(1:NROW(misgrps), misgrps, tail, 1)
     dat$grpnum <- rep(1:dat$Ng, npatt)
 
-    dat$Nobs <- do.call("c", lapply(Mp, function(x) rowSums(x$pat)))
-    Obsvar <- do.call("c", lapply(Mp, function(x) apply(x$pat, 1, which, simplify = FALSE)))
-    
-    dat$Np <- length(unique(misgrps))
+    pat <- lav_mp_to_obsvar(Mp, nvar)
+    dat$Nobs <- pat$Nobs
+    Obsvar <- pat$obsidx
+
+    dat$Np <- pat$Np
     dat$Ntot <- sum(dat$N)
-    dat$Obsvar <- matrix(0, dat$Np, nvar)
+    dat$Obsvar <- pat$Obsvar
     dat$Nx <- rep(0, dat$Np)
     dat$Xvar <- dat$Xdatvar <- matrix(0, dat$Np, nvar)
 
@@ -1144,11 +1226,6 @@ lav2standata <- function(lavobject, dosam = FALSE) {
     dat$Xbetvar <- matrix(0, dat$Np, nvar)
 
     for (i in 1:dat$Np) {
-      dat$Obsvar[i, 1:dat$Nobs[i]] <- Obsvar[[i]]
-      if (dat$Nobs[i] < nvar) {
-        ## missing idx is at end of Obsvar
-        dat$Obsvar[i, (dat$Nobs[i] + 1):nvar] <- allvars[!(allvars %in% Obsvar[[i]])]
-      }
       xdatidx <- match(xidx, Obsvar[[i]])
       xpat <- xidx[xidx %in% Obsvar[[i]]]
       if (length(xpat) > 0) {
@@ -1170,7 +1247,14 @@ lav2standata <- function(lavobject, dosam = FALSE) {
       ## YX[[g]] <- t(apply(YX[[g]], 1, function(x) c(x[!is.na(x)], rep(0, sum(is.na(x))))))
     }
   } else {
-    dat$miss <- 0L
+    if (multilevel && misflag) {
+      ## real missingness in a two-level model: the Np/Obsvar machinery
+      ## below stays a harmless "all observed" placeholder (see comment
+      ## above), but we still need to zero-fill NAs in the raw casewise
+      ## data because rstan/cmdstanr reject NA/NaN in data; the actual
+      ## missing-data pattern info is built separately below
+      for (g in 1:dat$Ng) YX[[g]][is.na(YX[[g]])] <- 0
+    }
     dat$grpnum <- rep(1:dat$Ng, dat$N)
     dat$startrow <- tapply(1:NROW(dat$grpnum), dat$grpnum, head, 1)
     dat$endrow <- tapply(1:NROW(dat$grpnum), dat$grpnum, tail, 1)
@@ -1247,9 +1331,160 @@ lav2standata <- function(lavobject, dosam = FALSE) {
                                                                      N_between + N_both + N_within))
     }
     dat$cov_d <- cov_d
-    ## this evenly distributes loglik.x across unique cluster sizes; sums to correct value
-    llx <- sapply(YLp, function(x) x[[2]]$loglik.x)
-    dat$log_lik_x <- array(rep(llx / dat$ncluster_sizes, dat$ncluster_sizes), sum(dat$ncluster_sizes))
+    ## dat$log_lik_x / dat$log_lik_x_full are built further below, from
+    ## llx_2l() directly (not lavaan's YLp[[g]][[2]]$loglik.x): lavaan's own
+    ## between-level loglik.x computation crashes under real between-level
+    ## fixed.x missingness (a confirmed upstream bug -- lav_samp_cl_patterns()
+    ## uses plain cov(), not cov(use="pairwise.complete.obs"), for the
+    ## between-level block), and even where it doesn't crash its aggregate
+    ## closed-form formula isn't a true casewise pairwise-complete-obs
+    ## likelihood under missingness. Sourcing both
+    ## quantities from the same llx_2l() call keeps them exactly mutually
+    ## consistent (log_lik_x == sum(log_lik_x_full) always) and is verified
+    ## numerically identical to the old lavaan-sourced value for complete
+    ## data.
+
+    ## Y/Z missing-data pattern fields for the two-level FIML/MAR likelihood.
+    ## Built unconditionally (not just when misflag) so complete two-level
+    ## data gets a degenerate single "all observed" pattern per group/cluster
+    ## -- a useful sanity-check case for the pattern-based Stan likelihood to
+    ## reduce correctly against the existing complete-data twolevel_logdens.
+    N_yspace <- dat$N_within + dat$N_both
+    N_bw <- dat$N_between
+    if (misflag) {
+      Mp <- lavobject@Data@Mp
+
+      ## ---- Y-patterns (level-1, within+both variable space) ----
+      allvars_y <- 1:N_yspace
+      n_ypatt <- integer(Ng)
+      ypatt_nobs_list <- vector("list", Ng)
+      ypatt_obsidx_list <- vector("list", Ng)
+      row_ypatt <- vector("list", Ng)
+      for (g in 1:Ng) {
+        mpg <- Mp[[g]]
+        npg <- mpg$npatterns
+        has_empty <- length(mpg$empty.idx) > 0
+        n_ypatt[g] <- npg + as.integer(has_empty)
+
+        nobs_g <- rowSums(mpg$pat)
+        obsidx_g <- apply(mpg$pat, 1, which, simplify = FALSE)
+        if (has_empty) {
+          nobs_g <- c(nobs_g, 0L)
+          obsidx_g <- c(obsidx_g, list(integer(0)))
+        }
+        ypatt_nobs_list[[g]] <- nobs_g
+        ypatt_obsidx_list[[g]] <- obsidx_g
+
+        ## group-local pattern id per row, in ORIGINAL (pre-cluster-reorder)
+        ## row order, i.e. matching YX[[g]]'s row order at this point.
+        ## NB: use NROW(YX[[g]]), not dat$N[g] -- dat$N excludes rows lavaan
+        ## flags as globally empty, but Mp$case.idx/empty.idx and YX[[g]]
+        ## still index into the full raw row space
+        rp <- integer(NROW(YX[[g]]))
+        if (npg > 0) for (p in 1:npg) rp[mpg$case.idx[[p]]] <- p
+        if (has_empty) rp[mpg$empty.idx] <- npg + 1L
+        row_ypatt[[g]] <- rp
+      }
+      dat$n_ypatt <- array(n_ypatt, Ng)
+
+      Ptot <- sum(n_ypatt)
+      dat$ypatt_nobs <- array(unlist(ypatt_nobs_list), Ptot)
+      dat$ypatt_obsidx <- matrix(0L, Ptot, N_yspace)
+      obsidx_all <- do.call("c", ypatt_obsidx_list)
+      for (i in 1:Ptot) {
+        no <- dat$ypatt_nobs[i]
+        ov <- obsidx_all[[i]]
+        if (no > 0) dat$ypatt_obsidx[i, 1:no] <- ov
+        if (no < N_yspace) dat$ypatt_obsidx[i, (no + 1):N_yspace] <- allvars_y[!(allvars_y %in% ov)]
+      }
+      ## concatenated across groups, in group order -- matches dat$YX's
+      ## current (pre-cluster-reorder) row order exactly
+      row_ypatt <- do.call("c", row_ypatt)
+
+      ## ---- Z-patterns (between-only variable space, one row per cluster) ----
+      if (N_bw > 0) {
+        n_zpatt <- integer(Ng)
+        zpatt_nobs_list <- vector("list", Ng)
+        zpatt_obsidx_list <- vector("list", Ng)
+        clus_zpatt <- vector("list", Ng)
+        for (g in 1:Ng) {
+          zpg <- Mp[[g]]$Zp
+          nqg <- zpg$npatterns
+          has_empty <- length(zpg$empty.idx) > 0
+          n_zpatt[g] <- nqg + as.integer(has_empty)
+
+          nobs_g <- rowSums(zpg$pat)
+          obsidx_g <- apply(zpg$pat, 1, which, simplify = FALSE)
+          if (has_empty) {
+            nobs_g <- c(nobs_g, 0L)
+            obsidx_g <- c(obsidx_g, list(integer(0)))
+          }
+          zpatt_nobs_list[[g]] <- nobs_g
+          zpatt_obsidx_list[[g]] <- obsidx_g
+
+          nclus_g <- dat$nclus[g, 2]
+          cp <- integer(nclus_g)
+          if (nqg > 0) for (q in 1:nqg) cp[zpg$case.idx[[q]]] <- q
+          if (has_empty) cp[zpg$empty.idx] <- nqg + 1L
+          clus_zpatt[[g]] <- cp
+        }
+        dat$n_zpatt <- array(n_zpatt, Ng)
+        Qtot <- sum(n_zpatt)
+        dat$zpatt_nobs <- array(unlist(zpatt_nobs_list), Qtot)
+        dat$zpatt_obsidx <- matrix(0L, Qtot, N_bw)
+        obsidx_all_z <- do.call("c", zpatt_obsidx_list)
+        for (i in 1:Qtot) {
+          no <- dat$zpatt_nobs[i]
+          ov <- obsidx_all_z[[i]]
+          if (no > 0) dat$zpatt_obsidx[i, 1:no] <- ov
+          if (no < N_bw) dat$zpatt_obsidx[i, (no + 1):N_bw] <- (1:N_bw)[!((1:N_bw) %in% ov)]
+        }
+        dat$clus_zpatt <- array(unlist(clus_zpatt), sum(dat$nclus[, 2]))
+      } else {
+        dat$n_zpatt <- array(0L, Ng)
+        dat$zpatt_nobs <- array(0L, 1)
+        dat$zpatt_obsidx <- matrix(0L, 1, 1)
+        dat$clus_zpatt <- array(1L, sum(dat$nclus[, 2]))
+      }
+    } else {
+      ## complete two-level data: degenerate single "all observed" pattern
+      dat$n_ypatt <- array(1L, Ng)
+      dat$ypatt_nobs <- array(N_yspace, Ng)
+      dat$ypatt_obsidx <- matrix(1:N_yspace, Ng, N_yspace, byrow = TRUE)
+      row_ypatt <- rep(1L, sum(dat$N))
+
+      dat$n_zpatt <- array(as.integer(N_bw > 0), Ng)
+      if (N_bw > 0) {
+        dat$zpatt_nobs <- array(N_bw, Ng)
+        dat$zpatt_obsidx <- matrix(1:N_bw, Ng, N_bw, byrow = TRUE)
+      } else {
+        dat$zpatt_nobs <- array(0L, 1)
+        dat$zpatt_obsidx <- matrix(0L, 1, 1)
+      }
+      dat$clus_zpatt <- array(1L, sum(dat$nclus[, 2]))
+    }
+
+    ## ---- Zrow: raw (zero-filled) per-cluster between-var values ----
+    ## mean_d_full (below) is NaN-contaminated under missingness (rowsum
+    ## with na.rm=FALSE), so it cannot be used to recover between-var values
+    ## for the missing-data likelihood; take them from the first row of each
+    ## cluster in the raw data instead
+    if (N_bw > 0) {
+      bidx1 <- dat$between_idx[1:N_bw]
+      Zrow_list <- vector("list", Ng)
+      for (g in 1:Ng) {
+        cidx_g <- Lp[[g]]$cluster.idx[[2]]
+        z_idx <- which(!duplicated(cidx_g))
+        Zrow_g <- lavobject@Data@X[[g]][z_idx, bidx1, drop = FALSE]
+        Zrow_g[is.na(Zrow_g)] <- 0
+        Zrow_list[[g]] <- Zrow_g
+      }
+      dat$Zrow <- do.call("rbind", Zrow_list)
+    } else {
+      ## padded to 1 column (unused) to match the Stan-side max(N_between,1)
+      ## sizing convention used for zpatt_obsidx/zpatt_nobs
+      dat$Zrow <- matrix(0, sum(dat$nclus[, 2]), 1)
+    }
 
     ## clusterwise data summaries, for loo and waic and etc
     cidx <- lavInspect(lavobject, 'cluster.idx')
@@ -1263,10 +1498,38 @@ lav2standata <- function(lavobject, dosam = FALSE) {
     }
     mean_d_full <- rowsum.default(as.matrix(dat$YX), cidx) / dat$cluster_size
 
-    tmpYX <- split.data.frame(dat$YX, cidx)
-    dat$YX <- do.call("rbind", tmpYX)
+    ## NB: row_ypatt is cbind'ed onto YX before this single split/rbind (not
+    ## split separately) so it can never desync from YX's row order
+    ncol_YX <- ncol(dat$YX)
+    combined <- cbind(dat$YX, row_ypatt)
+    tmpcomb <- split.data.frame(combined, cidx)
+    combined <- do.call("rbind", tmpcomb)
+    dat$YX <- combined[, 1:ncol_YX, drop = FALSE]
+    dat$row_ypatt <- array(as.integer(combined[, ncol_YX + 1]), nrow(combined))
     dat$orig_id <- unlist(split(1:nrow(dat$YX), cidx))
-    dat$log_lik_x_full <- llx_2l(Lp[[1]], dat$YX, mean_d_full, cidx)
+
+    ## llx_2l()'s within-x block needs NA-preserving level-1 data (dat$YX
+    ## has already been zero-filled, upstream of this point, for the
+    ## endogenous-variable pipeline -- load-bearing there, not touched here)
+    ## in the SAME row order dat$YX now has, i.e. reordered by cidx. NB: the
+    ## split/rbind above reorders rows into cidx-sorted-ascending blocks, so
+    ## the matching cluster-label sequence for the reordered rows is
+    ## sort(cidx), NOT the original (pre-reorder) cidx vector -- passing the
+    ## unreordered cidx here was a pre-existing bug (misattributes rows to
+    ## the wrong cluster whenever the raw data isn't already
+    ## cluster-contiguous; confirmed via a row-shuffled test dataset, masked
+    ## in existing usage since Demo.twolevel happens to already be
+    ## cluster-contiguous). multilevel models never apply the cases[[g]]
+    ## row-subsetting used for single-level FIML (see the misflag &&
+    ## !multilevel branch above), so lavobject@Data@X's rows correspond
+    ## 1:1, in original order, to dat$YX's pre-reorder rows.
+    YX_raw <- do.call("rbind", lavobject@Data@X)[order(cidx), , drop = FALSE]
+    llx_full <- llx_2l(Lp[[1]], YX_raw, mean_d_full, sort(cidx))
+    dat$log_lik_x_full <- llx_full
+    ## evenly distributes the total across unique cluster sizes; sums to
+    ## the correct value -- mirrors the previous lavaan-sourced llx
+    ## redistribution, now applied to blavaan's own sum(llx_full) instead
+    dat$log_lik_x <- array(rep(sum(llx_full) / dat$ncluster_sizes, dat$ncluster_sizes), sum(dat$ncluster_sizes))
     dat$mean_d_full <- lapply(1:nrow(mean_d_full), function(i) mean_d_full[i, dat$between_idx])
 
     ## cov_d is variability across clusters of same size, so irrelevant for clusterwise
@@ -1274,16 +1537,6 @@ lav2standata <- function(lavobject, dosam = FALSE) {
     cov_d_full <- lapply(1:length(dat$cluster_size), matrix, data = 0, nrow = NCOL(mean_d_full), ncol = NCOL(mean_d_full))
     dat$cov_d_full <- cov_d_full
 
-    ## matrices for "saturated" logl
-    dat$xbar_w <- do.call("rbind", lapply(YLp, function(x) x[[2]]$Mu.W))
-    dat$xbar_b <- do.call("rbind", lapply(YLp, function(x) x[[2]]$Mu.B))
-    cov_b <- array(unlist(lapply(YLp, function(x) x[[2]]$Sigma.B)), dim = c(ncol(dat$xbar_b),
-                                                                           ncol(dat$xbar_b),
-                                                                           Ng))
-    dat$cov_b <- aperm(cov_b, c(3, 1, 2))
-    
-    ## cinv for each group, for computing saturated _rep matrices for ppp
-    dat$gs <- array(unlist(sapply(YLp, function(x) x[[2]]$s, simplify = FALSE)))
   } else {
     dat$nclus <- array(1, c(Ng, 2))
     dat$cluster_size <- array(1, Ng)
@@ -1308,10 +1561,16 @@ lav2standata <- function(lavobject, dosam = FALSE) {
     dat$cov_d <- array(0, c(Ng, 0, 0))
     dat$mean_d_full <- array(0, c(Ng, 0))
     dat$cov_d_full <- array(0, c(Ng, 0, 0))
-    dat$xbar_w <- array(0, c(Ng, 0))
-    dat$xbar_b <- array(0, c(Ng, 0))
-    dat$cov_b <- array(0, c(Ng, 0, 0))
-    dat$gs <- array(1, Ng)
+
+    dat$n_ypatt <- array(1L, Ng)
+    dat$ypatt_nobs <- array(0L, Ng)
+    dat$ypatt_obsidx <- matrix(0L, Ng, 0)
+    dat$row_ypatt <- array(1L, sum(dat$N))
+    dat$n_zpatt <- array(0L, Ng)
+    dat$zpatt_nobs <- array(0L, 1)
+    dat$zpatt_obsidx <- matrix(0L, 1, 1)
+    dat$clus_zpatt <- array(1L, Ng)
+    dat$Zrow <- matrix(0, Ng, 1) # padded to 1 column, matches Stan's max(N_between,1)
   } # multilevel
 
   if (ord) {
@@ -1370,13 +1629,13 @@ lav2standata <- function(lavobject, dosam = FALSE) {
 }
 
 ## get data about covariance matrix blocks
-block_cov <- function(freemats, fr, mat, skel, Ng, dosam = FALSE) {
+block_cov <- function(freemats, fr, mat, skel, Ng, dosam = FALSE, doblocks = TRUE) {
   out <- list()
 
   cons <- attributes(freemats)$header
   freemats <- lapply(freemats, function(x) {
     outmat <- x[[mat]]
-    #outmat[outmat %in% cons$rhs] <- 0
+    ## outmat[outmat %in% cons$rhs] <- 0
     outmat
   })
   fr <- lapply(fr, function(x) {
@@ -1384,7 +1643,7 @@ block_cov <- function(freemats, fr, mat, skel, Ng, dosam = FALSE) {
     x
   })
   
-  blkinfo <- lapply(freemats, function(x) blkdiag(x, cons, dosam))
+  blkinfo <- lapply(freemats, function(x) blkdiag(x, cons, dosam, doblocks))
   blkmats <- all(sapply(blkinfo, function(x) x$isblk))
   blkse <- do.call("rbind", lapply(blkinfo, function(x) x$blkse))
   matorder <- do.call("rbind", lapply(blkinfo, function(x) x$neworder))
@@ -1406,11 +1665,11 @@ block_cov <- function(freemats, fr, mat, skel, Ng, dosam = FALSE) {
   ## a separate parameter specification in Stan
   if (length(ublksizes) > 5 | length(ublksizes) == 0) {
     if (length(ublksizes) > 5) blkmats <- FALSE
-      out[[paste0(mat, "nblk")]] <- array(0, dim = 5)
-      out[[paste0(mat, "dims")]] <- array(3, dim = 5)
-      out[[paste0(mat, "blkse")]] <- matrix(nrow = 0, ncol = 6)
-      out[[paste0(mat, "order")]] <- out[[paste0(mat, "revord")]] <- matrix(1, nrow = Ng, ncol = dim(skel)[3])
-      out[[paste0(mat, "blkpri")]] <- array(0, dim = 0)
+    out[[paste0(mat, "nblk")]] <- array(0, dim = 5)
+    out[[paste0(mat, "dims")]] <- array(3, dim = 5)
+    out[[paste0(mat, "blkse")]] <- matrix(nrow = 0, ncol = 6)
+    out[[paste0(mat, "order")]] <- out[[paste0(mat, "revord")]] <- matrix(1, nrow = Ng, ncol = dim(skel)[3])
+    out[[paste0(mat, "blkpri")]] <- array(0, dim = 0)
   } else {
     if (dosam) {
       blkgrp <- rep(1:length(blkinfo), times = sapply(blkinfo, function(x) sum(x$blkse[,3] == 1)))

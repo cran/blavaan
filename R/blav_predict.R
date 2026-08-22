@@ -16,14 +16,14 @@ blavPredict <- function(object, newdata = NULL, type = "lv", level = 1L) {
   
   type <- tolower(type)
   if(type %in% c("latent", "lv", "factor", "factor.score", "factorscore"))
-      type <- "lv"
+  type <- "lv"
   if(type %in% c("ov","yhat"))
-      type <- "yhat"
+  type <- "yhat"
   if(type %in% c("ypred", "ydist"))
-      type <- "ypred"
-  if(type %in% c("ymis", "ovmis")){
-      type <- "ymis"
-      if(all(!is.na(unlist(blavdata@X)))) stop("blavaan ERROR: No missing data are present.", call. = FALSE)
+  type <- "ypred"
+  if(type %in% c("ymis", "ovmis")) {
+    type <- "ymis"
+    if(all(!is.na(unlist(blavdata@X)))) stop("blavaan ERROR: No missing data are present.", call. = FALSE)
   }
 
   lavopt <- lavInspect(object, "options")
@@ -31,7 +31,7 @@ blavPredict <- function(object, newdata = NULL, type = "lv", level = 1L) {
 
   if(lavInspect(object, "categorical") & type == "ymis") stop("blavaan ERROR: ymis is not yet implemented for ordinal models.", call. = FALSE)
 
-  if(level == 2L){
+  if(level == 2L) {
     if(all(unlist(lavInspect(object, "nclusters")) == 1)) stop("blavaan ERROR: level 2 was requested but this does not appear to be a 2-level model.", call. = FALSE)
     if(type %in% c("yhat", "ypred", "ymis")) stop("blavaan ERROR: option", type, "is not yet implemented for two-level models.", call. = FALSE)
   }
@@ -57,10 +57,10 @@ blavPredict <- function(object, newdata = NULL, type = "lv", level = 1L) {
 
     ## N and latent variable names, to set dimensions
     lvmn <- lavInspect(object, "mean.lv")
-    if(!inherits(lvmn, "list")){
+    if(!inherits(lvmn, "list")) {
       lvmn <- list(lvmn)
     }
-    if(level == 1L){
+    if(level == 1L) {
       nlv <- length(lvmn[[1]])
       N <- sum(lavInspect(object, "ntotal"))
       etas <- names(lvmn[[1]])
@@ -89,7 +89,7 @@ blavPredict <- function(object, newdata = NULL, type = "lv", level = 1L) {
 
       tmpres <- vector("list", nchain)
       for(j in 1:nchain) {
-        loop.args <- list(X = 1:nsamps, FUN = function(i, j){
+        loop.args <- list(X = 1:nsamps, FUN = function(i, j) {
           cond_moments(lavmcmc[[j]][itnums[i],],
                        blavmodel,
                        blavpartable,
@@ -102,8 +102,8 @@ blavPredict <- function(object, newdata = NULL, type = "lv", level = 1L) {
 
       if(type == "ypred") {
         ## use mean and cov from each entry of tmpres to randomly sample
-        tmpres <- lapply(tmpres, function(x){
-          lapply(1:ng, function(g){
+        tmpres <- lapply(tmpres, function(x) {
+          lapply(1:ng, function(g) {
             sigchol <- chol(x$cov[[g]])
             t(apply(x$mean[[g]], 1, function(y) mnormt::rmnorm(n=1, mean=y, sqrt=sigchol)))
           })
@@ -133,7 +133,8 @@ blavPredict <- function(object, newdata = NULL, type = "lv", level = 1L) {
 ## fill blavaan object with newdata, then sample lvs given already-sampled parameters
 blav_fill_newdata <- function(object, newdat, lvs = TRUE) {
 
-  if (packageDescription("lavaan")$Version > "0.6-20") {
+  newname <- packageDescription("lavaan")$Version > "0.6-20"
+  if (newname) {
     lavd <- getFromNamespace("lav_lavdata", "lavaan")
   } else {
     lavd <- getFromNamespace("lavData", "lavaan")
@@ -145,13 +146,30 @@ blav_fill_newdata <- function(object, newdat, lvs = TRUE) {
   clus <- olddata@cluster
   if (length(clus) == 0L) clus <- NULL
 
-  object@Data <- lavd(data = newdat,
-                      group = grp,
-                      cluster = clus,
-                      ov.names = olddata@ov.names,
-                      ov.names.x = olddata@ov.names.x,
-                      ordered = OV$name[ OV$type == "ordered" ],
-                      lavoptions = object@Options, allow.single.case = TRUE)
+  ## clusters in newdat need not have appeared in the original (fitted)
+  ## data: samp_lvs_2lev()'s per-cluster estep only needs that cluster's
+  ## own rows plus the current posterior draw's implied moments. lavData()/
+  ## lav_lavdata() below still enforces its own >= 2 clusters-per-group
+  ## requirement on newdat.
+
+  ## lav_lavdata() (new in lavaan 0.7-1, replacing lavData()) renamed
+  ## ov.names/ov.names.x/allow.single.case to the underscore-style
+  ## ov_names/ov_names_x/allow_single_case
+  lavdargs <- list(data = newdat,
+                    group = grp,
+                    cluster = clus,
+                    ordered = OV$name[ OV$type == "ordered" ],
+                    lavoptions = object@Options)
+  if (newname) {
+    lavdargs$ov_names <- olddata@ov.names
+    lavdargs$ov_names_x <- olddata@ov.names.x
+    lavdargs$allow_single_case <- TRUE
+  } else {
+    lavdargs$ov.names <- olddata@ov.names
+    lavdargs$ov.names.x <- olddata@ov.names.x
+    lavdargs$allow.single.case <- TRUE
+  }
+  object@Data <- do.call(lavd, lavdargs)
 
   ## hacks for things that lavd missed
   if ("ov.idx" %in% names(olddata@Lp[[1]])) object@Data@Lp[[1]]$ov.idx <- olddata@Lp[[1]]$ov.idx
@@ -180,13 +198,44 @@ blav_fill_newdata <- function(object, newdat, lvs = TRUE) {
   object@external$mcmcdata <- smd
 
   if (lvs) {
-    newlvs <- samp_lvs(object@external$mcmcout, object@Model, object@ParTable, smd, eeta = NULL, categorical = FALSE)
-    lvsumm <- as.matrix(rstan::monitor(newlvs, print=FALSE))
-    cmatch <- match(colnames(object@external$stansumm), colnames(lvsumm))
     stansumm <- object@external$stansumm
     lvcols <- grep("^eta", rownames(stansumm))
     if (length(lvcols) > 0) stansumm <- stansumm[-lvcols, ]
-    object@external$stansumm <- rbind(stansumm, lvsumm[,cmatch])
+
+    if (isTRUE(lavInspect(object, "options")$.multilevel)) {
+      ## two-level model: need both level-1 ("eta") and level-2 ("eta_b")
+      ## draws, mirroring the fit-time dispatch in blavaan.R
+      if (packageDescription("lavaan")$Version > "0.6-20") {
+        lav_eeta <- getFromNamespace("lav_model_eeta", "lavaan")
+      } else {
+        lav_eeta <- getFromNamespace("computeEETA", "lavaan")
+      }
+      eeta <- lav_eeta(lavmodel = object@Model, lavsamplestats = object@SampleStats)
+
+      newlvs2 <- samp_lvs_2lev(object@external$mcmcout, object@Model, object@SampleStats,
+                               object@Data, object@ParTable, smd, eeta)
+
+      for (j in 1:2) {
+        if (dim(newlvs2[[j]])[3L] > 0) {
+          lvsumm <- as.matrix(rstan::monitor(newlvs2[[j]], print = FALSE))
+          cmatch <- match(colnames(stansumm), colnames(lvsumm))
+          stansumm <- rbind(stansumm, lvsumm[, cmatch])
+        }
+      }
+
+      newlvs <- simplify2array(sapply(1:nrow(newlvs2[[1]]), function(i)
+        cbind(newlvs2[[1]][i,,], newlvs2[[2]][i,,]), simplify = FALSE))
+      if (with(smd, length(usepsi) + length(usepsi_c) > 0)) {
+        newlvs <- aperm(newlvs, c(3, 1, 2))
+      }
+    } else {
+      newlvs <- samp_lvs(object@external$mcmcout, object@Model, object@ParTable, smd, eeta = NULL, categorical = FALSE)
+      lvsumm <- as.matrix(rstan::monitor(newlvs, print=FALSE))
+      cmatch <- match(colnames(stansumm), colnames(lvsumm))
+      stansumm <- rbind(stansumm, lvsumm[,cmatch])
+    }
+
+    object@external$stansumm <- stansumm
     object@external$stanlvs <- newlvs
   }
   

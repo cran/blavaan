@@ -1,17 +1,17 @@
-# This code is based on code from the LERSIL package, authored by Ben Goodrich
+## This code is based on code from the LERSIL package, authored by Ben Goodrich
 
-# Convert a skeleton matrix in R to the internal format used by Stan
-#
-# @param skeleton A matrix that indicates the restrictions placed on
-#   its elements. If `NA`, then the element is unrestricted. If
-#   `Inf` or `-Inf`, the element is unrestricted but is constrained
-#   to be positive or negative respectively. Otherwise, the element is 
-#   fixed to the specified number, which is often zero but can be any finite 
-#   value.
-# @return A list containing the sparse representation of the input matrix
+## Convert a skeleton matrix in R to the internal format used by Stan
+##
+## @param skeleton A matrix that indicates the restrictions placed on
+##   its elements. If `NA`, then the element is unrestricted. If
+##   `Inf` or `-Inf`, the element is unrestricted but is constrained
+##   to be positive or negative respectively. Otherwise, the element is 
+##   fixed to the specified number, which is often zero but can be any finite 
+##   value.
+## @return A list containing the sparse representation of the input matrix
 make_sparse_skeleton <- function(skeleton) {
   stopifnot(is.matrix(skeleton))
-  #skeleton[is.na(skeleton)] <- 1L
+  ## skeleton[is.na(skeleton)] <- 1L
   vals <- c(t(skeleton)) # vals needs to be in row-major order
   ## addresses change to Matrix clashing with extract_sparse_parts
   spmat <- Matrix::Matrix(!(skeleton==0L), doDiag=FALSE, sparse=TRUE)
@@ -60,11 +60,11 @@ group_sparse_skeleton <- function(skeleton) {
   return(out)
 }
 
-# Get prior parameters in a manner that Stan will like
-#
-# @param lavpartable A lavaan partable with "priors" column
-# @param mat The matrix for which we are obtaining priors
-# @return A list containing the prior parameters
+## Get prior parameters in a manner that Stan will like
+##
+## @param lavpartable A lavaan partable with "priors" column
+## @param mat The matrix for which we are obtaining priors
+## @return A list containing the prior parameters
 format_priors <- function(lavpartable, level = 1L) {
   ## parameter matrices are filled in by row, so need to make
   ## sure we get parameters in the right order!
@@ -200,11 +200,11 @@ format_priors <- function(lavpartable, level = 1L) {
   return(out)
 }
 
-# Check that priors match what is in the stan file
-#
-# @param lavpartable A lavaan partable with "priors" column
-# @param mat The matrix for which we are obtaining priors
-# @return nothing
+## Check that priors match what is in the stan file
+##
+## @param lavpartable A lavaan partable with "priors" column
+## @param mat The matrix for which we are obtaining priors
+## @return nothing
 check_priors <- function(lavpartable) {
   right_pris <- sapply(dpriors(target = "stan"), function(x) strsplit(x, "[, ()]+")[[1]][1])
   ## add additional prior options here
@@ -231,7 +231,7 @@ check_priors <- function(lavpartable) {
 }
 
 
-#' Obtain data list for stanmarg.
+## Obtain data list for stanmarg.
 stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
                           miss, Np, Nobs, Obsvar, # missing
                           ord, Nord, ordidx, contidx, nlevs,
@@ -257,9 +257,11 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
                           pri_only = FALSE, # prior predictive sampling
                           do_reg = FALSE, # regression sampling
                           multilev, mean_d, cov_w, log_lik_x, cov_d, nclus, cluster_size, # level 2 data
-                          ncluster_sizes, mean_d_full, cov_d_full, log_lik_x_full, xbar_w, xbar_b,
-                          cov_b, gs, cluster_sizes, cluster_size_ns, between_idx, N_between,
+                          ncluster_sizes, mean_d_full, cov_d_full, log_lik_x_full,
+                          cluster_sizes, cluster_size_ns, between_idx, N_between,
                           within_idx, N_within, both_idx, N_both, ov_idx1, ov_idx2, p_tilde, N_lev,
+                          n_ypatt, ypatt_nobs, ypatt_obsidx, row_ypatt, # level 2 missing data
+                          n_zpatt, zpatt_nobs, zpatt_obsidx, clus_zpatt, Zrow,
                           Lambda_y_skeleton_c = NULL, # level 2 matrices
                           B_skeleton_c = NULL, Theta_skeleton_c = NULL, Theta_r_skeleton_c = NULL,
                           Theta_r_skeleton_f_c = NULL,
@@ -329,6 +331,9 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$use_suff <- 1L
   if (ord | multilev) dat$use_suff <- 0L
 
+  dat$use_wcp <- 0L # reduce_sum() within-chain parallelization; off by default
+  dat$grainsize <- 1L
+
   dat$has_data <- 0L
   dat$use_cov <- 0L
   if (pri_only) {
@@ -392,10 +397,6 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$mean_d_full <- mean_d_full
   dat$cov_d_full <- cov_d_full
   dat$log_lik_x_full <- log_lik_x_full
-  dat$xbar_w <- xbar_w
-  dat$xbar_b <- xbar_b
-  dat$cov_b <- cov_b
-  dat$gs <- gs
   dat$nclus <- nclus
   dat$cluster_size <- cluster_size
   dat$ncluster_sizes <- ncluster_sizes
@@ -409,6 +410,17 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
   dat$p_tilde <- p_tilde
   dat$N_lev <- N_lev
 
+  ## level 2 missing data (two-level FIML/MAR patterns)
+  dat$n_ypatt <- array(n_ypatt, length(n_ypatt))
+  dat$ypatt_nobs <- array(ypatt_nobs, length(ypatt_nobs))
+  dat$ypatt_obsidx <- ypatt_obsidx
+  dat$row_ypatt <- array(row_ypatt, length(row_ypatt))
+  dat$n_zpatt <- array(n_zpatt, length(n_zpatt))
+  dat$zpatt_nobs <- array(zpatt_nobs, length(zpatt_nobs))
+  dat$zpatt_obsidx <- zpatt_obsidx
+  dat$clus_zpatt <- array(clus_zpatt, length(clus_zpatt))
+  dat$Zrow <- Zrow
+
   ## level 1 matrix info
   dat <- c(dat, stanmarg_matdata(dat, Lambda_y_skeleton, Lambda_x_skeleton,
                                  Gamma_skeleton, B_skeleton, Theta_skeleton,
@@ -418,7 +430,7 @@ stanmarg_data <- function(YX = NULL, S = NULL, YXo = NULL, N, Ng, grpnum, # data
                                  Psi_r_skeleton_f, Theta_r_skeleton_f, level = 1L))
   dat$lam_y_sign <- lam_y_sign
   dat$w1skel <- w1skel
-  #dat$lam_x_sign <- lam_x_sign
+  ## dat$lam_x_sign <- lam_x_sign
   dat$w3skel <- w3skel
   dat$gam_sign <- gam_sign
   dat$w4skel <- w4skel
@@ -537,13 +549,13 @@ stanmarg_matdata <- function(indat, Lambda_y_skeleton, Lambda_x_skeleton = NULL,
     dat$q <- dim(Lambda_x_skeleton)[2]
     dat$n <- dim(Lambda_x_skeleton)[3]
 
-    #tmpres <- group_sparse_skeleton(Lambda_x_skeleton)
-    #dat$len_w2 <- max(tmpres$g_len)
-    #dat$w2 <- tmpres$w
-    #dat$v2 <- tmpres$v
-    #dat$u2 <- tmpres$u
-    #dat$wg2 <- array(tmpres$g_len, length(tmpres$g_len))
-    #dat$w2skel <- w2skel
+    ## tmpres <- group_sparse_skeleton(Lambda_x_skeleton)
+    ## dat$len_w2 <- max(tmpres$g_len)
+    ## dat$w2 <- tmpres$w
+    ## dat$v2 <- tmpres$v
+    ## dat$u2 <- tmpres$u
+    ## dat$wg2 <- array(tmpres$g_len, length(tmpres$g_len))
+    ## dat$w2skel <- w2skel
 
 
     tmpres <- group_sparse_skeleton(Gamma_skeleton)
@@ -642,19 +654,19 @@ stanmarg_matdata <- function(indat, Lambda_y_skeleton, Lambda_x_skeleton = NULL,
       tmpmat[lower.tri(tmpmat)] <- tmpmat[upper.tri(tmpmat)] <- 0L
       dPhi[g,,] <- tmpmat
     }
-    #tmpres <- group_sparse_skeleton(dPhi)
-    #dat$len_w11 <- max(tmpres$g_len)
-    #dat$w11 <- tmpres$w
-    #dat$v11 <- tmpres$v
-    #dat$u11 <- tmpres$u
-    #dat$wg11 <- array(tmpres$g_len, length(tmpres$g_len))
+    ## tmpres <- group_sparse_skeleton(dPhi)
+    ## dat$len_w11 <- max(tmpres$g_len)
+    ## dat$w11 <- tmpres$w
+    ## dat$v11 <- tmpres$v
+    ## dat$u11 <- tmpres$u
+    ## dat$wg11 <- array(tmpres$g_len, length(tmpres$g_len))
 
-    #tmpres <- group_sparse_skeleton(Phi_r_skeleton)
-    #dat$len_w12 <- max(tmpres$g_len)
-    #dat$w12 <- tmpres$w
-    #dat$v12 <- tmpres$v
-    #dat$u12 <- tmpres$u
-    #dat$wg12 <- array(tmpres$g_len, length(tmpres$g_len))
+    ## tmpres <- group_sparse_skeleton(Phi_r_skeleton)
+    ## dat$len_w12 <- max(tmpres$g_len)
+    ## dat$w12 <- tmpres$w
+    ## dat$v12 <- tmpres$v
+    ## dat$u12 <- tmpres$u
+    ## dat$wg12 <- array(tmpres$g_len, length(tmpres$g_len))
   }
 
   if (indat$has_data & is.null(Nu_skeleton)) stop("blavaan ERROR: Nu_skeleton not provided")
